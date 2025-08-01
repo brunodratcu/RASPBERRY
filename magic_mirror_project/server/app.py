@@ -10,7 +10,7 @@ CORS(app)
 
 # ===== BANCO DE DADOS =====
 def init_db():
-    conn = sqlite3.connect('eventos.db')
+    conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     # Tabela de eventos
     cursor.execute('''
@@ -51,7 +51,7 @@ def login():
     username = data.get("username")
     senha = data.get("password")
     
-    conn = sqlite3.connect("eventos.db")
+    conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
     cursor.execute("SELECT senha FROM usuarios WHERE username = ?", (username,))
     user = cursor.fetchone()
@@ -81,7 +81,7 @@ def adicionar_evento(usuario):
     hora_evento = data.get('hora')
     criado_em = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    conn = sqlite3.connect('eventos.db')
+    conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     cursor.execute("INSERT INTO eventos (nome, data, hora, criado_em) VALUES (?, ?, ?, ?)",
                    (nome, data_evento, hora_evento, criado_em))
@@ -94,7 +94,7 @@ def adicionar_evento(usuario):
 @token_required
 def eventos_hoje(usuario):
     hoje = datetime.now().strftime('%Y-%m-%d')
-    conn = sqlite3.connect('eventos.db')
+    conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     cursor.execute("SELECT nome, hora FROM eventos WHERE data = ?", (hoje,))
     eventos = cursor.fetchall()
@@ -102,6 +102,19 @@ def eventos_hoje(usuario):
 
     eventos_formatados = [{'nome': nome, 'hora': hora} for nome, hora in eventos]
     return jsonify(eventos_formatados)
+
+# ===== DELETANDO EVENTO CADASTRADO =====
+@app.route('/api/eventos/<int:evento_id>', methods=['DELETE'])
+@token_required
+def deletar_evento(usuario, evento_id):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'mensagem': 'Evento deletado com sucesso!'}), 200
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)      

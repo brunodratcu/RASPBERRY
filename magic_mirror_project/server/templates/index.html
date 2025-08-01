@@ -2,26 +2,24 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Magic Mirror - Login e Eventos</title>
+  <title>Magic Mirror - Eventos</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      background-color: #f0f0f0;
+      font-family: Arial;
       padding: 40px;
+      background-color: #f4f4f4;
     }
 
     .popup {
       position: fixed;
       top: 0; left: 0;
-      width: 100vw; height: 100vh;
-      background: rgba(0, 0, 0, 0.5);
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
       display: flex; justify-content: center; align-items: center;
-      z-index: 1000;
     }
 
     .popup-content {
-      background: white;
+      background: #fff;
       padding: 30px;
       border-radius: 10px;
       text-align: center;
@@ -30,49 +28,60 @@
 
     .popup-content input, .popup-content button {
       width: 90%;
-      padding: 10px;
       margin: 10px 0;
+      padding: 10px;
     }
 
     #formContainer {
       display: none;
-      max-width: 500px;
-      margin: auto;
       background: white;
       padding: 30px;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px #ccc;
+      border-radius: 8px;
+      max-width: 500px;
+      margin: auto;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
 
-    #eventosHoje {
-      margin-top: 20px;
-      padding: 15px;
-      background: #eee;
-      border-radius: 6px;
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    li {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .delete-btn {
+      background: transparent;
+      border: none;
+      color: red;
+      font-weight: bold;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
 
-<!-- Pop-up de Login -->
 <div class="popup" id="loginPopup">
   <div class="popup-content">
     <h2>Login</h2>
-    <input type="text" id="username" placeholder="Usuário" />
-    <input type="password" id="password" placeholder="Senha" />
+    <input type="text" id="username" placeholder="Usuário">
+    <input type="password" id="password" placeholder="Senha">
     <button onclick="fazerLogin()">Entrar</button>
     <p id="loginStatus" style="color: red;"></p>
   </div>
 </div>
 
-<!-- Formulário de Evento -->
 <div id="formContainer">
-  <h2>Cadastro de Evento</h2>
+  <h2>Cadastrar Evento</h2>
   <form id="formEvento">
     <input type="text" name="nome" placeholder="Nome do Evento" required><br>
     <input type="date" name="data" required><br>
     <input type="time" name="hora" required><br>
-    <button type="submit">Cadastrar Evento</button>
+    <button type="submit">Cadastrar</button>
     <p id="mensagemCadastro" style="color: green;"></p>
   </form>
 
@@ -105,7 +114,6 @@
     }
   }
 
-  // Envio do Evento
   document.getElementById("formEvento").addEventListener("submit", async function (e) {
     e.preventDefault();
     const form = e.target;
@@ -116,7 +124,6 @@
     };
 
     const token = localStorage.getItem("token");
-
     const res = await fetch("/api/eventos", {
       method: "POST",
       headers: {
@@ -137,7 +144,6 @@
     }
   });
 
-  // Buscar eventos do dia
   async function buscarEventosHoje() {
     const token = localStorage.getItem("token");
     const res = await fetch("/api/eventos-hoje", {
@@ -149,14 +155,31 @@
       const lista = document.getElementById("listaEventos");
       lista.innerHTML = "";
       if (eventos.length === 0) {
-        lista.innerHTML = "<li>Nenhum evento para hoje.</li>";
+        lista.innerHTML = "<li>Nenhum evento hoje.</li>";
       } else {
         eventos.forEach(ev => {
           const li = document.createElement("li");
-          li.textContent = `${ev.nome} às ${ev.hora}`;
+          li.innerHTML = `
+            ${ev.nome} às ${ev.hora}
+            <button class="delete-btn" onclick="deletarEvento(${ev.id})">x</button>
+          `;
           lista.appendChild(li);
         });
       }
+    }
+  }
+
+  async function deletarEvento(id) {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`/api/eventos/${id}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+
+    if (res.ok) {
+      buscarEventosHoje();
+    } else {
+      alert("Erro ao deletar evento.");
     }
   }
 </script>
