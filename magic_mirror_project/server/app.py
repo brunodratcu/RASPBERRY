@@ -107,12 +107,11 @@ def eventos_hoje(usuario):
 @app.route('/api/eventos/<int:evento_id>', methods=['DELETE'])
 @token_required
 def deletar_evento(usuario, evento_id):
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect('eventos.db')
     cursor = conn.cursor()
     cursor.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
     conn.commit()
     conn.close()
-
     return jsonify({'mensagem': 'Evento deletado com sucesso!'}), 200
 
 

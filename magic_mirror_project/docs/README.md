@@ -22,3 +22,8 @@
 ## Tela de login: 
 - Usuário: admin
 - Senha: admin
+
+
+## Dimensões:
+- Raspberry Pi: 21 mm x 51.3 mm x 3.9 mm
+- ST7789: 5 mm x 40 mm x 28 mm - 1.3"
