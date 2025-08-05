@@ -96,18 +96,18 @@ def eventos_hoje(usuario):
     hoje = datetime.now().strftime('%Y-%m-%d')
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT nome, hora FROM eventos WHERE data = ?", (hoje,))
+    cursor.execute("SELECT id, nome, hora FROM eventos WHERE data = ?", (hoje,))
     eventos = cursor.fetchall()
     conn.close()
 
-    eventos_formatados = [{'nome': nome, 'hora': hora} for nome, hora in eventos]
+    eventos_formatados = [{'id':id, 'nome': nome, 'hora': hora} for id, nome, hora in eventos]
     return jsonify(eventos_formatados)
 
 # ===== DELETANDO EVENTO CADASTRADO =====
 @app.route('/api/eventos/<int:evento_id>', methods=['DELETE'])
 @token_required
 def deletar_evento(usuario, evento_id):
-    conn = sqlite3.connect('eventos.db')
+    conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     cursor.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
     conn.commit()
