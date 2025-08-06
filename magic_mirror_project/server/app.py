@@ -10,7 +10,7 @@ CORS(app)
 
 # ===== BANCO DE DADOS =====
 def init_db():
-    conn = sqlite3.connect('database.db')
+    conn = sqlite3.connect('db/database.db')
     cursor = conn.cursor()
     # Tabela de eventos
     cursor.execute('''
@@ -113,6 +113,18 @@ def deletar_evento(usuario, evento_id):
     conn.commit()
     conn.close()
     return jsonify({'mensagem': 'Evento deletado com sucesso!'}), 200
+
+
+# ===== RESETANDO BANCO DE DADOS =====
+@app.route('/api/eventos', methods=['DELETE'])
+@token_required
+def deletar_todos_eventos(usuario):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM eventos")
+    conn.commit()
+    conn.close()
+    return jsonify({'mensagem': 'Todos os eventos foram excluídos com sucesso!'}), 200
 
 
 if __name__ == '__main__':

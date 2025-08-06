@@ -92,6 +92,11 @@
     <h3>Eventos de Hoje:</h3>
     <ul id="listaEventos"></ul>
   </div>
+
+  <button onclick="limparHistorico()" style="margin-top: 20px; background-color: #cc0000; color: white; padding: 10px; border: none; border-radius: 4px; cursor: pointer;">
+  Limpar Histórico de Eventos
+  </button>
+
 </div>
 
 <script>
@@ -200,6 +205,38 @@
       alert("Erro de conexão com o servidor.");
     }
   }
+
+  async function limparHistorico() {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    alert("Usuário não autenticado.");
+    return;
+  }
+
+  if (!confirm("Tem certeza que deseja excluir todos os eventos?")) return;
+
+  try {
+    const res = await fetch("/api/eventos", {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (res.ok) {
+      alert("Histórico de eventos apagado com sucesso.");
+      buscarEventosHoje();
+    } else {
+      alert("Erro ao apagar eventos.");
+    }
+  } catch (err) {
+    console.error("Erro de rede:", err);
+    alert("Erro de conexão com o servidor.");
+  }
+}
+
 </script>
 
 </body>
