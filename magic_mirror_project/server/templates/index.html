@@ -4,25 +4,34 @@
   <meta charset="UTF-8">
   <title>Magic Mirror - Eventos</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
     body {
-      font-family: Arial, sans-serif;
-      background-color: #f0f0f0;
-      padding: 40px;
+      font-family: 'Orbitron', sans-serif;
+      background-color: #0a0a0a;
+      color: #00f0ff;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
     }
 
     .popup {
       position: fixed;
       top: 0; left: 0;
       width: 100%; height: 100%;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.85);
       display: flex;
       justify-content: center;
       align-items: center;
     }
 
     .popup-content {
-      background: #fff;
+      background: rgba(20, 20, 30, 0.9);
       padding: 30px;
+      border: 1px solid #00f0ff;
       border-radius: 10px;
       text-align: center;
       width: 300px;
@@ -32,16 +41,34 @@
       width: 90%;
       margin: 10px 0;
       padding: 10px;
+      background-color: transparent;
+      border: 1px solid #00f0ff;
+      color: #00f0ff;
+      font-size: 14px;
     }
 
     #formContainer {
       display: none;
-      background: white;
+      background: rgba(15, 15, 25, 0.95);
       padding: 30px;
-      border-radius: 8px;
-      max-width: 500px;
-      margin: auto;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      border-radius: 10px;
+      width: 500px;
+      box-shadow: 0 0 20px #00f0ff33;
+    }
+
+    h2, h3 {
+      color: #00f0ff;
+      text-align: center;
+    }
+
+    input, button {
+      background-color: transparent;
+      color: #00f0ff;
+      border: 1px solid #00f0ff;
+      padding: 10px;
+      width: 100%;
+      margin: 10px 0;
+      font-size: 14px;
     }
 
     ul {
@@ -52,17 +79,33 @@
     li {
       display: flex;
       justify-content: space-between;
-      padding: 8px;
-      border-bottom: 1px solid #ddd;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid #00f0ff44;
     }
 
     .delete-btn {
       background: transparent;
       border: none;
-      color: red;
+      color: #ff0033;
       font-weight: bold;
       font-size: 18px;
       cursor: pointer;
+    }
+
+    #resetButton {
+      background-color: transparent;
+      border: 1px solid #00f0ff;
+      color: #00f0ff;
+      padding: 10px;
+      width: 100%;
+      margin-top: 20px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    #resetButton:hover {
+      background-color: #00f0ff22;
     }
   </style>
 </head>
@@ -74,7 +117,7 @@
     <input type="text" id="username" placeholder="Usuário">
     <input type="password" id="password" placeholder="Senha">
     <button onclick="fazerLogin()">Entrar</button>
-    <p id="loginStatus" style="color: red;"></p>
+    <p id="loginStatus" style="color: #ff0033;"></p>
   </div>
 </div>
 
@@ -85,7 +128,7 @@
     <input type="date" name="data" required><br>
     <input type="time" name="hora" required><br>
     <button type="submit">Cadastrar</button>
-    <p id="mensagemCadastro" style="color: green;"></p>
+    <p id="mensagemCadastro" style="color: #00ff88;"></p>
   </form>
 
   <div id="eventosHoje">
@@ -93,10 +136,7 @@
     <ul id="listaEventos"></ul>
   </div>
 
-  <button onclick="limparHistorico()" style="margin-top: 20px; background-color: #cc0000; color: white; padding: 10px; border: none; border-radius: 4px; cursor: pointer;">
-  Limpar Histórico de Eventos
-  </button>
-
+  <button id="resetButton" onclick="limparHistorico()">🧨 Limpar Histórico de Eventos</button>
 </div>
 
 <script>
@@ -143,14 +183,19 @@
 
     const result = await res.json();
 
-    if (res.ok) {
-      document.getElementById("mensagemCadastro").innerText = "Evento cadastrado com sucesso!";
-      form.reset();
-      buscarEventosHoje();
-    } else {
-      document.getElementById("mensagemCadastro").innerText = result.message || "Erro ao cadastrar.";
-    }
-  });
+  if (res.ok) {
+    const mensagem = document.getElementById("mensagemCadastro");
+    mensagem.innerText = "Evento cadastrado com sucesso!";
+    form.reset();
+    buscarEventosHoje();
+
+    setTimeout(() => {
+      mensagem.innerText = "";
+    }, 3000); // 3 segundos
+  } else {
+    document.getElementById("mensagemCadastro").innerText = result.message || "Erro ao cadastrar.";
+  }
+});
 
   async function buscarEventosHoje() {
     const token = localStorage.getItem("token");
@@ -179,12 +224,6 @@
 
   async function deletarEvento(id) {
     const token = localStorage.getItem("token");
-
-    if (!token) {
-      alert("Usuário não autenticado.");
-      return;
-    }
-
     try {
       const res = await fetch(`/api/eventos/${id}`, {
         method: "DELETE",
@@ -195,48 +234,45 @@
       });
 
       if (res.ok) {
-        buscarEventosHoje(); // recarrega lista
+        buscarEventosHoje();
       } else {
         const data = await res.json();
         alert("Erro ao excluir: " + (data.mensagem || res.statusText));
       }
     } catch (err) {
-      console.error("Erro de rede:", err);
-      alert("Erro de conexão com o servidor.");
+      alert("Erro de conexão.");
     }
   }
 
   async function limparHistorico() {
-  const token = localStorage.getItem("token");
+    const token = localStorage.getItem("token");
 
-  if (!token) {
-    alert("Usuário não autenticado.");
-    return;
-  }
-
-  if (!confirm("Tem certeza que deseja excluir todos os eventos?")) return;
-
-  try {
-    const res = await fetch("/api/eventos", {
-      method: "DELETE",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      }
-    });
-
-    if (res.ok) {
-      alert("Histórico de eventos apagado com sucesso.");
-      buscarEventosHoje();
-    } else {
-      alert("Erro ao apagar eventos.");
+    if (!token) {
+      alert("Usuário não autenticado.");
+      return;
     }
-  } catch (err) {
-    console.error("Erro de rede:", err);
-    alert("Erro de conexão com o servidor.");
-  }
-}
 
+    if (!confirm("Tem certeza que deseja excluir todos os eventos?")) return;
+
+    try {
+      const res = await fetch("/api/eventos", {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      });
+
+      if (res.ok) {
+        alert("Histórico de eventos apagado com sucesso.");
+        buscarEventosHoje();
+      } else {
+        alert("Erro ao apagar eventos.");
+      }
+    } catch (err) {
+      alert("Erro de rede.");
+    }
+  }
 </script>
 
 </body>

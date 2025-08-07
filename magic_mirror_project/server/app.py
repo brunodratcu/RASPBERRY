@@ -10,7 +10,7 @@ CORS(app)
 
 # ===== BANCO DE DADOS =====
 def init_db():
-    conn = sqlite3.connect('db/database.db')
+    conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     # Tabela de eventos
     cursor.execute('''
