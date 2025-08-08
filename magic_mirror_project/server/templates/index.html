@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Magic Mirror - Eventos</title>
+  <title>Magic Mirror</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
 
@@ -57,7 +57,7 @@
     }
 
     h2, h3 {
-      color: #00f0ff;
+      color: #ffffff;
       text-align: center;
     }
 
@@ -136,7 +136,7 @@
     <ul id="listaEventos"></ul>
   </div>
 
-  <button id="resetButton" onclick="limparHistorico()">🧨 Limpar Histórico de Eventos</button>
+  <button id="resetButton" onclick="limparHistorico()">Limpar agenda</button>
 </div>
 
 <script>
@@ -191,7 +191,7 @@
 
     setTimeout(() => {
       mensagem.innerText = "";
-    }, 3000); // 3 segundos
+    }, 2000); // 3 segundos
   } else {
     document.getElementById("mensagemCadastro").innerText = result.message || "Erro ao cadastrar.";
   }
