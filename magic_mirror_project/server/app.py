@@ -115,6 +115,18 @@ def deletar_evento(usuario, evento_id):
     return jsonify({'mensagem': 'Evento deletado com sucesso!'}), 200
 
 
+# ===== RESETANDO BANCO DE DADOS =====
+@app.route('/api/eventos', methods=['DELETE'])
+@token_required
+def deletar_todos_eventos(usuario):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM eventos")
+    conn.commit()
+    conn.close()
+    return jsonify({'mensagem': 'Todos os eventos foram excluídos com sucesso!'}), 200
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)      
     app.run(debug=True)
