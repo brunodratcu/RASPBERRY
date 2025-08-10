@@ -1,123 +1,227 @@
+<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
   <title>Magic Mirror - Eventos</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+    html,body{height:100%; margin:0;}
     body {
-      font-family: Arial, sans-serif;
-      background-color: #f0f0f0;
-      padding: 40px;
+      font-family: 'Orbitron', sans-serif;
+      background: linear-gradient(180deg, #020203 0%, #071018 100%);
+      color: #e6fbff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      -webkit-font-smoothing:antialiased;
     }
 
+    /* POPUP */
     .popup {
       position: fixed;
       top: 0; left: 0;
       width: 100%; height: 100%;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.86);
       display: flex;
       justify-content: center;
       align-items: center;
+      z-index: 1000;
     }
 
     .popup-content {
-      background: #fff;
-      padding: 30px;
-      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(10,10,20,0.6), rgba(20,20,30,0.5));
+      padding: 28px;
+      border: 1px solid rgba(0,240,255,0.18);
+      box-shadow: 0 6px 40px rgba(0,240,255,0.05);
+      border-radius: 12px;
+      width: 320px;
       text-align: center;
-      width: 300px;
+      backdrop-filter: blur(4px);
     }
 
-    .popup-content input, .popup-content button {
-      width: 90%;
+    .popup-content input[type="text"],
+    .popup-content input[type="password"]{
+      width: 94%;
+      padding: 12px;
       margin: 10px 0;
-      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,240,255,0.2);
+      background: rgba(0,0,0,0.45);
+      color: #e6fbff;
+      outline: none;
     }
 
+    .popup-content button {
+      margin-top: 8px;
+      padding: 10px 16px;
+      width: 96%;
+      border-radius: 8px;
+      border: 1px solid rgba(0,240,255,0.5);
+      background: rgba(0,240,255,0.06);
+      color: #00dfff;
+      cursor: pointer;
+      font-weight:700;
+    }
+
+    .popup-content h2 { margin: 0 0 8px; color: #00e6ff; }
+
+    /* MAIN PANEL */
     #formContainer {
       display: none;
-      background: white;
-      padding: 30px;
+      width: 640px;
+      background: linear-gradient(180deg, rgba(5,8,12,0.6), rgba(8,12,18,0.5));
+      border-radius: 14px;
+      padding: 28px;
+      box-shadow: 0 10px 60px rgba(0,0,0,0.6);
+      border: 1px solid rgba(0,240,255,0.08);
+    }
+
+    h2 { color: #00e6ff; margin-top:0; }
+
+    form#formEvento input[type="text"],
+    form#formEvento input[type="date"],
+    form#formEvento select {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
       border-radius: 8px;
-      max-width: 500px;
-      margin: auto;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      border: 1px solid rgba(0,240,255,0.12);
+      background: rgba(0,0,0,0.45);
+      color: #e6fbff;
     }
 
-    ul {
-      list-style: none;
-      padding: 0;
+    form#formEvento button {
+      padding: 12px;
+      width: 100%;
+      margin-top:8px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,240,255,0.25);
+      background: rgba(0,240,255,0.04);
+      color: #00dfff;
+      font-weight:700;
+      cursor: pointer;
     }
 
-    li {
-      display: flex;
-      justify-content: space-between;
-      padding: 8px;
-      border-bottom: 1px solid #ddd;
+    #eventosHoje { margin-top: 18px; }
+
+    ul#listaEventos { list-style:none; padding:0; margin:0; }
+    ul#listaEventos li{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:10px 14px;
+      border-bottom:1px solid rgba(0,240,255,0.04);
+      color:#e6fbff;
+      font-size:14px;
     }
 
+    /* botão "x" transparente com letra azul elétrico */
     .delete-btn {
       background: transparent;
       border: none;
-      color: red;
-      font-weight: bold;
+      color: #00bfff; /* azul elétrico */
+      font-weight: 700;
       font-size: 18px;
       cursor: pointer;
+      opacity: 0.95;
+    }
+
+    #resetButton {
+      margin-top: 14px;
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,240,255,0.12);
+      background: transparent;
+      color: #00bfff; /* azul elétrico */
+      cursor: pointer;
+      font-weight:700;
+    }
+    #resetButton:hover { opacity: 0.9; }
+
+    #mensagemCadastro { color: #9fffdc; min-height:18px; margin-top:6px; }
+
+    /* pequeno responsive */
+    @media (max-width:700px){
+      #formContainer { width: 92%; }
+      .popup-content { width: 90%; }
     }
   </style>
 </head>
 <body>
 
+<!-- POPUP LOGIN (form para permitir Enter) -->
 <div class="popup" id="loginPopup">
-  <div class="popup-content">
-    <h2>Login</h2>
-    <input type="text" id="username" placeholder="Usuário">
-    <input type="password" id="password" placeholder="Senha">
-    <button onclick="fazerLogin()">Entrar</button>
-    <p id="loginStatus" style="color: red;"></p>
-  </div>
+  <form class="popup-content" id="formLogin" onsubmit="event.preventDefault(); fazerLogin();">
+    <h2>ACESSO</h2>
+    <input id="username" type="text" placeholder="Usuário" required autocomplete="username">
+    <input id="password" type="password" placeholder="Senha" required autocomplete="current-password">
+    <button type="submit">Entrar</button>
+    <p id="loginStatus" style="color:#ff6b6b;"></p>
+  </form>
 </div>
 
+<!-- PAINEL PRINCIPAL -->
 <div id="formContainer">
-  <h2>Cadastrar Evento</h2>
+  <h2>Magic Mirror — Eventos</h2>
+
   <form id="formEvento">
-    <input type="text" name="nome" placeholder="Nome do Evento" required><br>
-    <input type="date" name="data" required><br>
-    <input type="time" name="hora" required><br>
+    <label for="nome">Nome do Evento:</label>
+    <input type="text" name="nome" placeholder="Nome do Evento" required>
+    <!-- calendário nativo -->
+    <label for="data">Data do Evento:</label>
+    <input type="date" name="data" id="data" required>
+    <!-- campo de hora livre -->
+    <label for="hora">Hora do Evento:</label>
+    <input type="time" name="hora" id="hora" required>
+
+
     <button type="submit">Cadastrar</button>
-    <p id="mensagemCadastro" style="color: green;"></p>
+    <p id="mensagemCadastro"></p>
   </form>
 
   <div id="eventosHoje">
-    <h3>Eventos de Hoje:</h3>
+    <h3>Eventos de Hoje</h3>
     <ul id="listaEventos"></ul>
+    <button id="resetButton" onclick="limparHistorico()">🧨 Limpar Histórico de Eventos</button>
   </div>
 </div>
 
 <script>
-  async function fazerLogin() {
+  // Faz login e oculta popup
+  async function fazerLogin(){
+    document.getElementById("loginStatus").innerText = "";
     const username = document.getElementById("username").value;
     const password = document.getElementById("password").value;
 
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
-    });
-
-    const data = await res.json();
-
-    if (res.ok) {
-      localStorage.setItem("token", data.token);
-      document.getElementById("loginPopup").style.display = "none";
-      document.getElementById("formContainer").style.display = "block";
-      buscarEventosHoje();
-    } else {
-      document.getElementById("loginStatus").innerText = data.message || "Erro ao fazer login";
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({username, password})
+      });
+      const data = await res.json();
+      if (res.ok && data.token){
+        localStorage.setItem("token", data.token);
+        document.getElementById("loginPopup").style.display = "none";
+        document.getElementById("formContainer").style.display = "block";
+        buscarEventosHoje();
+      } else {
+        document.getElementById("loginStatus").innerText = data.message || "Erro de login";
+      }
+    } catch (e) {
+      document.getElementById("loginStatus").innerText = "Erro de conexão";
+      console.error(e);
     }
   }
 
-  document.getElementById("formEvento").addEventListener("submit", async function (e) {
+  // Handle Enter in popup automatically since we're using a <form> with onsubmit
+
+  // Cadastro de evento
+  document.getElementById("formEvento").addEventListener("submit", async (e)=>{
     e.preventDefault();
     const form = e.target;
     const evento = {
@@ -125,81 +229,77 @@
       data: form.data.value,
       hora: form.hora.value
     };
-
     const token = localStorage.getItem("token");
     const res = await fetch("/api/eventos", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
-      },
+      headers: {"Content-Type":"application/json","Authorization": `Bearer ${token}`},
       body: JSON.stringify(evento)
     });
-
-    const result = await res.json();
-
-    if (res.ok) {
-      document.getElementById("mensagemCadastro").innerText = "Evento cadastrado com sucesso!";
+    const json = await res.json();
+    const mensagemElem = document.getElementById("mensagemCadastro");
+    if (res.ok){
+      mensagemElem.innerText = "Evento cadastrado com sucesso!";
       form.reset();
       buscarEventosHoje();
+      setTimeout(()=> mensagemElem.innerText = "", 3000);
     } else {
-      document.getElementById("mensagemCadastro").innerText = result.message || "Erro ao cadastrar.";
+      mensagemElem.innerText = json.message || "Erro ao cadastrar";
     }
   });
 
-  async function buscarEventosHoje() {
+  // Buscar eventos do dia
+  async function buscarEventosHoje(){
     const token = localStorage.getItem("token");
-    const res = await fetch("/api/eventos-hoje", {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-
-    if (res.ok) {
+    if(!token) return;
+    try {
+      const res = await fetch("/api/eventos-hoje", { headers: {"Authorization": `Bearer ${token}`}});
+      if (!res.ok) { console.error("fetch eventos hoje", await res.text()); return; }
       const eventos = await res.json();
       const lista = document.getElementById("listaEventos");
       lista.innerHTML = "";
-      if (eventos.length === 0) {
+      if (eventos.length === 0){
         lista.innerHTML = "<li>Nenhum evento hoje.</li>";
       } else {
         eventos.forEach(ev => {
           const li = document.createElement("li");
           li.innerHTML = `
-            ${ev.nome} às ${ev.hora}
-            <button class="delete-btn" onclick="deletarEvento(${ev.id})">❌</button>
+            <span>${ev.nome} — ${ev.hora}</span>
+            <button class="delete-btn" onclick="deletarEvento(${ev.id})">✖</button>
           `;
           lista.appendChild(li);
         });
       }
+    } catch (e){
+      console.error("Erro buscarEventosHoje:", e);
     }
   }
 
-  async function deletarEvento(id) {
+  // Deletar único evento
+  async function deletarEvento(id){
     const token = localStorage.getItem("token");
-
-    if (!token) {
-      alert("Usuário não autenticado.");
-      return;
-    }
-
+    if(!token) { alert("Faça login"); return; }
+    if(!confirm("Excluir esse evento?")) return;
     try {
-      const res = await fetch(`/api/eventos/${id}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        }
-      });
-
-      if (res.ok) {
-        buscarEventosHoje(); // recarrega lista
-      } else {
-        const data = await res.json();
-        alert("Erro ao excluir: " + (data.mensagem || res.statusText));
-      }
-    } catch (err) {
-      console.error("Erro de rede:", err);
-      alert("Erro de conexão com o servidor.");
-    }
+      const res = await fetch(`/api/eventos/${id}`, { method:"DELETE", headers: {"Authorization": `Bearer ${token}`}});
+      if (res.ok) buscarEventosHoje();
+      else alert("Falha ao excluir");
+    } catch (e) { alert("Erro de rede"); console.error(e); }
   }
+
+  // Limpar histórico (deleta todos)
+  async function limparHistorico(){
+    const token = localStorage.getItem("token");
+    if(!token) { alert("Faça login"); return; }
+    if(!confirm("Tem certeza que quer apagar todos os eventos?")) return;
+    try {
+      const res = await fetch("/api/eventos", { method:"DELETE", headers: {"Authorization": `Bearer ${token}`}});
+      if (res.ok) { alert("Histórico apagado"); buscarEventosHoje(); }
+      else alert("Erro ao apagar");
+    } catch (e) { alert("Erro de rede"); console.error(e); }
+  }
+
+  // opcional: auto foco no campo username ao carregar
+  window.addEventListener("load", ()=> document.getElementById("username").focus());
 </script>
 
 </body>
