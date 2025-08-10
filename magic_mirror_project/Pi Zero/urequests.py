@@ -1,48 +1,76 @@
-import usocket
+# urequests.py (versão simples)
+import usocket as socket
+import ujson as json
 
-def request(method, url, data=None, json=None, headers={}, stream=None):
-    try:
-        proto, dummy, host, path = url.split('/', 3)
-    except ValueError:
-        proto, dummy, host = url.split('/', 2)
-        path = ''
-    if proto == 'http:':
-        port = 80
-    else:
-        raise ValueError('Unsupported protocol: ' + proto)
+class Response:
+    def __init__(self, sock):
+        self.sock = sock
+        self._buffer = b""
 
-    if ':' in host:
-        host, port = host.split(':', 1)
+    def close(self):
+        try:
+            self.sock.close()
+        except:
+            pass
+
+    def json(self):
+        data = self.read()
+        try:
+            return json.loads(data)
+        except:
+            return None
+
+    def read(self):
+        # lê todo o socket
+        res = b""
+        try:
+            while True:
+                d = self.sock.recv(1024)
+                if not d:
+                    break
+                res += d
+        except:
+            pass
+        # separa headers e body
+        parts = res.split(b"\r\n\r\n", 1)
+        if len(parts) == 2:
+            return parts[1].decode()
+        return res.decode()
+
+def request(method, url, data=None, headers=None):
+    if headers is None:
+        headers = {}
+    proto, dummy, host, path = url.split('/', 3)
+    host_port = host
+    if ':' in host_port:
+        host, port = host_port.split(':', 1)
         port = int(port)
-
-    ai = usocket.getaddrinfo(host, port)[0]
-    s = usocket.socket()
-    s.connect(ai[-1])
-    s.send(bytes('%s /%s HTTP/1.0\r\n' % (method, path), 'utf8'))
-    s.send(bytes('Host: %s\r\n' % host, 'utf8'))
-    for k in headers:
-        s.send(bytes('%s: %s\r\n' % (k, headers[k]), 'utf8'))
-    if json is not None:
-        import ujson
-        data = ujson.dumps(json)
-        s.send(b'Content-Type: application/json\r\n')
+    else:
+        port = 80
+    s = socket.socket()
+    ai = socket.getaddrinfo(host, port)[0][-1]
+    s.connect(ai)
+    req = "{} /{} HTTP/1.0\r\nHost: {}\r\n".format(method, path, host_port)
+    for k,v in headers.items():
+        req += "{}: {}\r\n".format(k, v)
     if data:
-        s.send(bytes('Content-Length: %d\r\n' % len(data), 'utf8'))
-    s.send(b'\r\n')
+        if isinstance(data, dict):
+            body = json.dumps(data)
+            req += "Content-Type: application/json\r\n"
+        else:
+            body = data
+        req += "Content-Length: {}\r\n".format(len(body))
+    req += "\r\n"
+    s.send(req.encode())
     if data:
-        s.send(data)
-
-    l = s.readline()
-    protover, status, msg = l.split(None, 2)
-    while True:
-        l = s.readline()
-        if not l or l == b'\r\n':
-            break
-
-    return s
+        s.send(body.encode())
+    return Response(s)
 
 def get(url, **kw):
     return request("GET", url, **kw)
 
 def post(url, **kw):
     return request("POST", url, **kw)
+
+def delete(url, **kw):
+    return request("DELETE", url, **kw)
