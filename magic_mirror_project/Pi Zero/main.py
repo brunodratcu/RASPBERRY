@@ -1,78 +1,99 @@
-import network
-import urequests
-import utime
+# main.py - Pico W + ILI9488 (480x320) + fetch de eventos
+import network, utime
+import ntptime
+import urequests as requests
 from machine import Pin, SPI
-import ili9341  # biblioteca da tela TFT ILI9341
-import vga1_8x16 as font  # fonte compatível
+import ili9948
+import vga1_8x16 as font
 
-# ======== CONFIG WIFI ========
-SSID = 'SEU_WIFI'
-PASSWORD = 'SENHA_WIFI'
-SERVER_URL = 'http://SEU_SERVIDOR:5000/api/eventos-hoje'
+# ===== CONFIG =====
+SSID = "SEU_SSID"
+PASSWORD = "SUA_SENHA"
+SERVER_IP = "192.168.0.100"   # IP do seu servidor Flask
+SERVER_URL = "http://{}:5000".format(SERVER_IP)
+TOKEN = "COLE_AQUI_O_TOKEN"  # gerado por generate_pico_token.py
+POLL_INTERVAL = 15  # segundos
 
-# ======== CONEXÃO COM A TELA TFT ========
-spi = SPI(1, baudrate=20000000, sck=Pin(10), mosi=Pin(11))
-display = ili9341.ILI9341(spi, cs=Pin(13), dc=Pin(14), rst=Pin(15),
-                          width=320, height=240, rotation=90)
-
-# ======== CONECTAR AO WIFI ========
-def conectar_wifi():
+# ===== Wi-Fi =====
+def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    wlan.connect(SSID, PASSWORD)
-    print("Conectando ao Wi-Fi...", end="")
-    while not wlan.isconnected():
-        print(".", end="")
-        utime.sleep(1)
-    print("\nWi-Fi conectado! IP:", wlan.ifconfig()[0])
+    if not wlan.isconnected():
+        wlan.connect(SSID, PASSWORD)
+        start = utime.time()
+        while not wlan.isconnected():
+            utime.sleep(0.5)
+            if utime.time() - start > 20:
+                break
+    print("WiFi:", wlan.ifconfig())
 
-# ======== FORMATADOR DE DATA ========
-def formatar_data():
-    t = utime.localtime()
-    return "{:02d}/{:02d}/{:04d}".format(t[2], t[1], t[0])
+# ===== Hora =====
+def sync_time():
+    try:
+        ntptime.settime()
+    except Exception as e:
+        print("NTP falhou:", e)
 
-def formatar_hora():
-    t = utime.localtime()
-    return "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
+# ===== HTTP =====
+def fetch_events():
+    url = SERVER_URL + "/api/eventos-hoje"
+    headers = {"Authorization": "Bearer {}".format(TOKEN)}
+    try:
+        r = requests.get(url, headers=headers)
+        data = r.json()
+        r.close()
+        return data
+    except Exception as e:
+        print("Erro fetch:", e)
+        return []
 
-# ======== FUNÇÃO PARA ATUALIZAR A TELA ========
-def atualizar_tela(eventos):
-    display.fill(ili9341.color565(0, 0, 0))  # fundo preto
+# ===== Inicializa Display ILI9488 =====
+spi = SPI(1, baudrate=40000000, sck=Pin(10), mosi=Pin(11))
+tft = ili9948.ILI9488(
+    spi=spi,
+    cs=Pin(9, Pin.OUT),
+    dc=Pin(8, Pin.OUT),
+    rst=Pin(12, Pin.OUT),
+    width=480,
+    height=320,
+    rot=0  # 0 ou 1 dependendo da orientação desejada
+)
 
-    hora = formatar_hora()
-    data = formatar_data()
+# ===== Função de desenho =====
+def draw(events):
+    tft.fill(0x0000)  # preto
+    tt = utime.localtime()
+    time_str = "{:02d}:{:02d}:{:02d}".format(tt[3], tt[4], tt[5])
+    date_str = "{:02d}/{:02d}/{:04d}".format(tt[2], tt[1], tt[0])
 
-    display.text(font, "Hora: " + hora, 10, 10, ili9341.color565(0, 255, 0))
-    display.text(font, "Data: " + data, 10, 30, ili9341.color565(0, 255, 255))
+    tft.text(font, "Hora: " + time_str, 10, 10, ili9XXX.color565(0, 255, 255), 0x0000)
+    tft.text(font, "Data: " + date_str, 10, 30, ili9XXX.color565(0, 255, 255), 0x0000)
 
-    display.text(font, "Eventos de hoje:", 10, 60, ili9341.color565(255, 255, 0))
-
-    y = 80
-    if eventos:
-        for evento in eventos:
-            texto = f"{evento['hora']} - {evento['nome']}"
-            display.text(font, texto[:40], 10, y, ili9341.color565(255, 255, 255))
-            y += 20
+    y = 60
+    tft.text(font, "Eventos de Hoje:", 10, y, ili9XXX.color565(255, 255, 0), 0x0000)
+    y += 20
+    if not events:
+        tft.text(font, "- nenhum -", 10, y, ili9XXX.color565(255, 0, 0), 0x0000)
     else:
-        display.text(font, "Nenhum evento.", 10, y, ili9341.color565(255, 0, 0))
+        for ev in events:
+            linha = "{} {}".format(ev.get("hora", ""), ev.get("nome", ""))
+            tft.text(font, linha[:40], 10, y, ili9XXX.color565(255, 255, 255), 0x0000)
+            y += 18
+            if y > 300:
+                break
 
-# ======== LOOP PRINCIPAL ========
+# ===== Loop principal =====
 def main():
-    conectar_wifi()
-
+    connect_wifi()
+    sync_time()
+    last = None
     while True:
-        try:
-            resposta = urequests.get(SERVER_URL)
-            eventos = resposta.json()
-            resposta.close()
+        events = fetch_events()
+        if events != last:
+            draw(events)
+            last = events
+        for _ in range(POLL_INTERVAL):
+            utime.sleep(1)
 
-            atualizar_tela(eventos)
-
-        except Exception as e:
-            print("Erro ao buscar eventos:", e)
-            display.fill(ili9341.color565(0, 0, 0))
-            display.text(font, "Erro de conexao.", 10, 10, ili9341.color565(255, 0, 0))
-
-        utime.sleep(15)
-
-main()
+if __name__ == "__main__":
+    main()
