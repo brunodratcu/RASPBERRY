@@ -8,6 +8,11 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+
+#DB_PATH = "db/database.db"
+#PICO_IP = "192.168.0.150"  # <-- Substituir pelo IP do Pico W
+
+
 # ===== BANCO DE DADOS =====
 def init_db():
     conn = sqlite3.connect('database.db')
@@ -81,12 +86,34 @@ def adicionar_evento(usuario):
     hora_evento = data.get('hora')
     criado_em = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    if not nome or not data_evento or not hora_evento:
+        return jsonify({"erro": "Preencha todos os campos"}), 400
+
+
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     cursor.execute("INSERT INTO eventos (nome, data, hora, criado_em) VALUES (?, ?, ?, ?)",
                    (nome, data_evento, hora_evento, criado_em))
     conn.commit()
     conn.close()
+
+
+
+    # Se o evento for hoje, envia para o Pico W
+    if data_evento == date.today().isoformat():
+        try:
+            requests.post(f"http://{PICO_IP}/update-event", json={
+                "nome": nome,
+                "hora": hora_evento
+            }, timeout=3)
+            print(f"Evento de hoje enviado ao Pico W: {nome} às {hora_evento}")
+        except requests.exceptions.RequestException as e:
+            print(f"⚠ Erro ao enviar evento para Pico W: {e}")
+
+    return jsonify({"mensagem": "Evento cadastrado com sucesso"}), 201
+
+
+
 
     return jsonify({'mensagem': 'Evento cadastrado com sucesso!'}), 201
 
