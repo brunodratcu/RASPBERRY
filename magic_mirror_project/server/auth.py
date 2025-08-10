@@ -1,48 +1,51 @@
 # auth.py
-from flask import request, jsonify
-from functools import wraps
-import bcrypt
 import jwt
 import datetime
+from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import request, jsonify
 
-SECRET_KEY = "chave_super_secreta"
+# troque por uma chave segura em produção
+SECRET_KEY = "troque_esta_chave_por_uma_super_secreta"
 
-# Criptografa a senha
-def hash_password(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode()
+def hash_password(password: str) -> str:
+    return generate_password_hash(password)
 
-# Verifica a senha
-def verify_password(password, hashed):
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+def verify_password(password: str, hashed: str) -> bool:
+    return check_password_hash(hashed, password)
 
-# Gera token JWT
-def generate_token(username):
+def generate_token(identity: str, hours: int = 24*365) -> str:
+    """Gera um JWT com expiração em 'hours' horas (default: 1 ano)."""
     payload = {
-        'user': username,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+        "sub": identity,
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=hours),
+        "iat": datetime.datetime.utcnow()
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    # PyJWT 2.x returns str
+    return token
 
-# Middleware para proteger rotas
+def decode_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return payload.get("sub")
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
         token = None
-        if 'Authorization' in request.headers:
-            auth_header = request.headers['Authorization']
-            if auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
-
+        if auth.startswith("Bearer "):
+            token = auth.split(" ", 1)[1]
         if not token:
-            return jsonify({'message': 'Token ausente!'}), 401
-
-        try:
-            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            current_user = data['user']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token expirado!'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'message': 'Token inválido!'}), 401
-
-        return f(current_user, *args, **kwargs)
+            return jsonify({"message": "Token requerido."}), 401
+        user = decode_token(token)
+        if not user:
+            return jsonify({"message": "Token inválido ou expirado."}), 401
+        # passa o identity ao handler
+        return f(user, *args, **kwargs)
     return decorated
