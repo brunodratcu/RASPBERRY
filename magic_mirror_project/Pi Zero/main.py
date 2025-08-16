@@ -3,7 +3,7 @@ import time
 import urequests
 from time import localtime
 from machine import Pin, SPI
-from ili9488 import Display  # Certifique-se de ter a biblioteca micropython-ili9488
+from ili9488 import Display  # Biblioteca micropython-ili9488
 
 # ======== CONFIG Wi-Fi ========
 SSID = "lPhone de Bruno"
@@ -11,9 +11,13 @@ PASSWORD = "deniederror"
 URL_JSON = "http://SEU_SERVIDOR/api/eventos.json"  # Troque pelo endereço real
 
 # ======== CONFIG TELA ILI9488 ========
-# Pinos SPI e controle (ajuste conforme sua ligação física)
 spi = SPI(1, baudrate=40000000, sck=Pin(10), mosi=Pin(11))
 display = Display(spi, dc=Pin(12), cs=Pin(13), rst=Pin(14))
+
+# ======== CONFIG BOTÃO INTERRUPTOR (gangorra) ========
+# Conecte um lado do botão ao GND e o outro no GPIO escolhido (exemplo: GPIO15)
+# Ativa PULL_UP -> botão pressionado = 0 / solto = 1
+botao = Pin(15, Pin.IN, Pin.PULL_UP)
 
 # ======== FUNÇÃO: Conectar Wi-Fi ========
 def conecta_wifi():
@@ -73,6 +77,12 @@ def mostrar_evento(evento):
 ip_local = conecta_wifi()
 
 while True:
-    evento = busca_evento(URL_JSON)
-    mostrar_evento(evento)
-    time.sleep(60)  # Atualiza a cada 1 minuto
+    if botao.value() == 0:  # Botão ligado (nível baixo porque está em PULL_UP)
+        evento = busca_evento(URL_JSON)
+        mostrar_evento(evento)
+    else:
+        # Se o botão estiver desligado -> apaga a tela
+        display.clear()
+        display.draw_text8x8(50, 120, "MagicMirror OFF", color=0xF800)
+    
+    time.sleep(1)  # Checa a cada 1s
