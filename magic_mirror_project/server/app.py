@@ -4,21 +4,26 @@ from datetime import datetime, timedelta
 from auth import hash_password, verify_password, generate_token, token_required
 import sqlite3
 import os
-import requests
 import json
 import threading
 import time
 import logging
+import paho.mqtt.client as mqtt
+import random
 
 app = Flask(__name__)
 CORS(app)
 
-# Configurações do Raspberry Pico
-PICO_IPS = []  # Lista de IPs dos Picos conectados - será preenchida automaticamente
-PICO_PORT = 80
-AUTO_DISCOVER_PICOS = True
-SYNC_INTERVAL = 60  # Sincronização a cada 60 segundos
-MAX_RETRY_ATTEMPTS = 3
+# ===== CONFIGURAÇÕES MQTT =====
+MQTT_BROKER = "broker.hivemq.com"  # Broker gratuito
+MQTT_PORT = 1883
+MQTT_CLIENT_ID = f"flask_server_{random.randint(1000, 9999)}"
+MQTT_TOPIC_BASE = "eventos_pico"  # Tópico base
+MQTT_KEEP_ALIVE = 60
+
+# Cliente MQTT global
+mqtt_client = None
+mqtt_connected = False
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -51,14 +56,15 @@ def init_db():
         )
     ''')
     
-    # Tabela de dispositivos Pico conectados
+    # Tabela de dispositivos Pico conectados (via MQTT)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pico_devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ip_address TEXT UNIQUE NOT NULL,
+            client_id TEXT UNIQUE NOT NULL,
             name TEXT DEFAULT 'Pico Desconhecido',
             last_sync TEXT,
             status TEXT DEFAULT 'offline',
+            topic TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -73,285 +79,332 @@ def init_db():
     conn.close()
     logger.info("📚 Banco de dados inicializado")
 
-# ===== FUNÇÕES DE DESCOBERTA E SINCRONIZAÇÃO =====
-def descobrir_picos_na_rede():
-    """Descobre automaticamente dispositivos Pico na rede local"""
-    global PICO_IPS
-    import subprocess
-    import ipaddress
-    import concurrent.futures
-    
-    def testar_ip_pico(ip_str):
-        """Testa se um IP específico é um Pico"""
-        try:
-            response = requests.get(
-                f"http://{ip_str}:{PICO_PORT}/api/pico-id", 
-                timeout=2,
-                headers={'User-Agent': 'FlaskEventSync/1.0'}
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('device_type') == 'pico':
-                    logger.info(f"📱 Pico encontrado: {ip_str} - {data.get('name', 'Sem nome')}")
-                    return {
-                        'ip': ip_str,
-                        'name': data.get('name', 'Pico Desconhecido'),
-                        'display': data.get('display', 'ILI9341')
-                    }
-        except:
-            pass
-        return None
-    
+# ===== FUNÇÕES MQTT =====
+def on_mqtt_connect(client, userdata, flags, rc):
+    """Callback de conexão MQTT"""
+    global mqtt_connected
+    if rc == 0:
+        mqtt_connected = True
+        logger.info("✅ Conectado ao broker MQTT!")
+        
+        # Subscrever aos tópicos de status dos Picos
+        client.subscribe(f"{MQTT_TOPIC_BASE}/+/status")
+        client.subscribe(f"{MQTT_TOPIC_BASE}/+/ack")
+        logger.info(f"📡 Subscrito aos tópicos: {MQTT_TOPIC_BASE}/+/status e {MQTT_TOPIC_BASE}/+/ack")
+    else:
+        mqtt_connected = False
+        logger.error(f"❌ Falha na conexão MQTT: {rc}")
+
+def on_mqtt_message(client, userdata, msg):
+    """Callback para mensagens MQTT recebidas"""
     try:
-        # Obtém a rede local
-        result = subprocess.run(['hostname', '-I'], capture_output=True, text=True)
-        local_ip = result.stdout.strip().split()[0]
-        network = ipaddress.IPv4Network(f"{'.'.join(local_ip.split('.')[:-1])}.0/24", strict=False)
+        topic = msg.topic
+        message = msg.payload.decode('utf-8')
         
-        logger.info(f"🔍 Procurando Picos na rede {network}")
-        picos_encontrados = []
+        logger.info(f"📨 Mensagem MQTT recebida: {topic} -> {message}")
         
-        # Usa ThreadPoolExecutor para testar IPs em paralelo
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            # Testa apenas uma faixa menor para ser mais rápido
-            ips_para_testar = [str(ip) for ip in list(network.hosts())[1:50]]  # Primeiros 50 IPs
+        # Extrair client_id do tópico
+        topic_parts = topic.split('/')
+        if len(topic_parts) >= 3:
+            client_id = topic_parts[1]
+            message_type = topic_parts[2]
             
-            future_to_ip = {executor.submit(testar_ip_pico, ip): ip for ip in ips_para_testar}
-            
-            for future in concurrent.futures.as_completed(future_to_ip, timeout=30):
-                result = future.result()
-                if result:
-                    picos_encontrados.append(result)
+            if message_type == "status":
+                processar_status_pico(client_id, message)
+            elif message_type == "ack":
+                processar_ack_pico(client_id, message)
+                
+    except Exception as e:
+        logger.error(f"❌ Erro ao processar mensagem MQTT: {e}")
+
+def processar_status_pico(client_id, message):
+    """Processa mensagem de status de um Pico"""
+    try:
+        data = json.loads(message)
         
-        # Atualiza lista global
-        PICO_IPS = [pico['ip'] for pico in picos_encontrados]
-        
-        # Atualiza banco de dados
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         
-        for pico in picos_encontrados:
-            cursor.execute('''
-                INSERT OR REPLACE INTO pico_devices (ip_address, name, status, last_sync) 
-                VALUES (?, ?, ?, ?)
-            ''', (pico['ip'], pico['name'], 'online', datetime.now().isoformat()))
+        # Atualizar ou inserir Pico no banco
+        cursor.execute('''
+            INSERT OR REPLACE INTO pico_devices (client_id, name, status, last_sync, topic) 
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            client_id,
+            data.get('name', f'Pico_{client_id}'),
+            'online',
+            datetime.now().isoformat(),
+            f"{MQTT_TOPIC_BASE}/{client_id}"
+        ))
         
         conn.commit()
         conn.close()
         
-        logger.info(f"✅ {len(picos_encontrados)} Picos descobertos")
-        return picos_encontrados
+        logger.info(f"📱 Pico {client_id} registrado: {data.get('name', 'Sem nome')}")
         
     except Exception as e:
-        logger.error(f"❌ Erro ao descobrir Picos: {e}")
-        return []
+        logger.error(f"❌ Erro ao processar status do Pico {client_id}: {e}")
 
-def verificar_pico_online(pico_ip):
-    """Verifica se um Pico específico está online"""
+def processar_ack_pico(client_id, message):
+    """Processa confirmação de recebimento de evento"""
     try:
-        response = requests.get(
-            f"http://{pico_ip}:{PICO_PORT}/api/status", 
-            timeout=3,
-            headers={'User-Agent': 'FlaskEventSync/1.0'}
-        )
-        return response.status_code == 200
-    except:
-        return False
-
-def enviar_evento_para_pico(pico_ip, evento_data, retry_count=0):
-    """Envia evento específico para um Pico com retry automático"""
-    if retry_count >= MAX_RETRY_ATTEMPTS:
-        logger.error(f"❌ Máximo de tentativas excedido para Pico {pico_ip}")
-        return False
+        data = json.loads(message)
+        evento_id = data.get('evento_id')
         
-    try:
-        payload = {
-            "id": evento_data["id"],
-            "nome": evento_data["nome"],
-            "hora": evento_data["hora"],
-            "data": evento_data.get("data"),
-            "acao": "adicionar"
-        }
-        
-        response = requests.post(
-            f"http://{pico_ip}:{PICO_PORT}/api/evento", 
-            json=payload, 
-            timeout=10,
-            headers={
-                'Content-Type': 'application/json',
-                'User-Agent': 'FlaskEventSync/1.0'
-            }
-        )
-        
-        if response.status_code == 200:
-            logger.info(f"✅ Evento {evento_data['id']} enviado para Pico {pico_ip}")
-            return True
-        else:
-            logger.warning(f"⚠️ Resposta inesperada do Pico {pico_ip}: {response.status_code}")
-            if retry_count < MAX_RETRY_ATTEMPTS - 1:
-                time.sleep(2 ** retry_count)  # Backoff exponencial
-                return enviar_evento_para_pico(pico_ip, evento_data, retry_count + 1)
-            return False
+        if evento_id:
+            conn = sqlite3.connect('database.db')
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE eventos 
+                SET sincronizado = 1, tentativas_sync = tentativas_sync + 1 
+                WHERE id = ?
+            """, (evento_id,))
+            conn.commit()
+            conn.close()
             
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Erro de conexão com Pico {pico_ip}: {e}")
-        if retry_count < MAX_RETRY_ATTEMPTS - 1:
-            time.sleep(2 ** retry_count)  # Backoff exponencial
-            return enviar_evento_para_pico(pico_ip, evento_data, retry_count + 1)
-        return False
+            logger.info(f"✅ Evento {evento_id} confirmado pelo Pico {client_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao processar ACK do Pico {client_id}: {e}")
 
-def limpar_eventos_pico(pico_ip):
-    """Limpa todos os eventos de um Pico específico"""
+def inicializar_mqtt():
+    """Inicializa cliente MQTT"""
+    global mqtt_client
+    
     try:
-        response = requests.post(
-            f"http://{pico_ip}:{PICO_PORT}/api/limpar",
-            timeout=5,
-            headers={'User-Agent': 'FlaskEventSync/1.0'}
-        )
-        return response.status_code == 200
-    except:
+        mqtt_client = mqtt.Client(MQTT_CLIENT_ID)
+        mqtt_client.on_connect = on_mqtt_connect
+        mqtt_client.on_message = on_mqtt_message
+        
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, MQTT_KEEP_ALIVE)
+        mqtt_client.loop_start()
+        
+        logger.info(f"🚀 Cliente MQTT iniciado: {MQTT_CLIENT_ID}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao inicializar MQTT: {e}")
         return False
 
-def atualizar_display_pico(pico_ip):
-    """Solicita atualização do display de um Pico"""
+def enviar_evento_mqtt(evento_data):
+    """Envia evento via MQTT para todos os Picos"""
+    global mqtt_client, mqtt_connected
+    
+    if not mqtt_connected or not mqtt_client:
+        logger.error("❌ MQTT não conectado")
+        return False
+    
     try:
-        response = requests.post(
-            f"http://{pico_ip}:{PICO_PORT}/api/atualizar",
-            timeout=5,
-            headers={'User-Agent': 'FlaskEventSync/1.0'}
-        )
-        return response.status_code == 200
-    except:
+        # Buscar todos os Picos online no banco
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id, topic FROM pico_devices WHERE status = 'online'")
+        picos = cursor.fetchall()
+        conn.close()
+        
+        if not picos:
+            logger.warning("⚠️ Nenhum Pico online encontrado")
+            return False
+        
+        eventos_enviados = 0
+        
+        for client_id, topic in picos:
+            # Tópico específico para eventos
+            evento_topic = f"{topic}/evento"
+            
+            # Payload do evento
+            payload = json.dumps({
+                "id": evento_data["id"],
+                "nome": evento_data["nome"],
+                "hora": evento_data["hora"],
+                "data": evento_data["data"],
+                "acao": "adicionar",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Publicar evento
+            result = mqtt_client.publish(evento_topic, payload, qos=1)
+            
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                logger.info(f"📤 Evento {evento_data['id']} enviado para Pico {client_id}")
+                eventos_enviados += 1
+            else:
+                logger.error(f"❌ Falha ao enviar evento para Pico {client_id}")
+        
+        return eventos_enviados > 0
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao enviar evento via MQTT: {e}")
         return False
 
-def sincronizar_todos_eventos_hoje():
-    """Sincroniza todos os eventos de hoje com todos os Picos online"""
+def sincronizar_eventos_hoje_mqtt():
+    """Sincroniza todos os eventos de hoje via MQTT"""
     hoje = datetime.now().strftime('%Y-%m-%d')
     
     # Busca eventos de hoje
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, nome, hora, data, sincronizado, tentativas_sync 
+        SELECT id, nome, hora, data 
         FROM eventos 
         WHERE data = ? 
         ORDER BY hora
     """, (hoje,))
     eventos_hoje = cursor.fetchall()
+    conn.close()
     
     if not eventos_hoje:
         logger.info("📅 Nenhum evento para hoje")
-        conn.close()
-        return {"sincronizados": 0, "erros": 0, "picos": 0}
-    
-    # Descobre/atualiza lista de Picos se necessário
-    if AUTO_DISCOVER_PICOS and (not PICO_IPS or len(PICO_IPS) == 0):
-        descobrir_picos_na_rede()
-    
-    if not PICO_IPS:
-        logger.warning("⚠️ Nenhum Pico descoberto na rede")
-        conn.close()
         return {"sincronizados": 0, "erros": 0, "picos": 0}
     
     eventos_sincronizados = 0
     erros_sincronizacao = 0
-    picos_online = 0
     
-    # Sincroniza com cada Pico
-    for pico_ip in PICO_IPS:
-        if not verificar_pico_online(pico_ip):
-            logger.warning(f"⚠️ Pico {pico_ip} offline - pulando sincronização")
-            continue
-            
-        picos_online += 1
-        logger.info(f"🔄 Sincronizando com Pico {pico_ip}")
-        
-        # Limpa eventos antigos do Pico
-        limpar_eventos_pico(pico_ip)
-        
-        # Envia cada evento de hoje
-        for evento_id, nome, hora, data, sincronizado, tentativas in eventos_hoje:
-            evento_data = {
-                "id": evento_id,
-                "nome": nome,
-                "hora": hora,
-                "data": data
-            }
-            
-            if enviar_evento_para_pico(pico_ip, evento_data):
-                eventos_sincronizados += 1
-                # Atualiza status no banco
-                cursor.execute("""
-                    UPDATE eventos 
-                    SET sincronizado = 1, tentativas_sync = tentativas_sync + 1 
-                    WHERE id = ?
-                """, (evento_id,))
-            else:
-                erros_sincronizacao += 1
-                # Incrementa tentativas
-                cursor.execute("""
-                    UPDATE eventos 
-                    SET tentativas_sync = tentativas_sync + 1 
-                    WHERE id = ?
-                """, (evento_id,))
-        
-        # Atualiza display do Pico
-        atualizar_display_pico(pico_ip)
-        
-        # Atualiza status do Pico no banco
-        cursor.execute("""
-            UPDATE pico_devices 
-            SET status = 'online', last_sync = ? 
-            WHERE ip_address = ?
-        """, (datetime.now().isoformat(), pico_ip))
+    # Enviar comando de limpeza primeiro
+    limpar_eventos_mqtt()
+    time.sleep(1)  # Aguardar processamento
     
-    conn.commit()
-    conn.close()
+    # Enviar cada evento
+    for evento_id, nome, hora, data in eventos_hoje:
+        evento_data = {
+            "id": evento_id,
+            "nome": nome,
+            "hora": hora,
+            "data": data
+        }
+        
+        if enviar_evento_mqtt(evento_data):
+            eventos_sincronizados += 1
+        else:
+            erros_sincronizacao += 1
+    
+    # Enviar comando de atualização de display
+    atualizar_display_mqtt()
     
     resultado = {
         "sincronizados": eventos_sincronizados,
         "erros": erros_sincronizacao,
-        "picos": picos_online,
         "eventos_total": len(eventos_hoje)
     }
     
-    logger.info(f"📱 Sincronização concluída: {resultado}")
+    logger.info(f"📱 Sincronização MQTT concluída: {resultado}")
     return resultado
+
+def limpar_eventos_mqtt():
+    """Envia comando para limpar eventos nos Picos via MQTT"""
+    global mqtt_client, mqtt_connected
+    
+    if not mqtt_connected or not mqtt_client:
+        return False
+    
+    try:
+        # Buscar Picos online
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id, topic FROM pico_devices WHERE status = 'online'")
+        picos = cursor.fetchall()
+        conn.close()
+        
+        for client_id, topic in picos:
+            comando_topic = f"{topic}/comando"
+            payload = json.dumps({"acao": "limpar"})
+            mqtt_client.publish(comando_topic, payload, qos=1)
+            logger.info(f"🗑️ Comando de limpeza enviado para Pico {client_id}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao enviar comando de limpeza: {e}")
+        return False
+
+def atualizar_display_mqtt():
+    """Envia comando para atualizar display nos Picos via MQTT"""
+    global mqtt_client, mqtt_connected
+    
+    if not mqtt_connected or not mqtt_client:
+        return False
+    
+    try:
+        # Buscar Picos online
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id, topic FROM pico_devices WHERE status = 'online'")
+        picos = cursor.fetchall()
+        conn.close()
+        
+        for client_id, topic in picos:
+            comando_topic = f"{topic}/comando"
+            payload = json.dumps({"acao": "atualizar_display"})
+            mqtt_client.publish(comando_topic, payload, qos=1)
+            logger.info(f"🔄 Comando de atualização enviado para Pico {client_id}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao enviar comando de atualização: {e}")
+        return False
+
+def deletar_evento_mqtt(evento_id):
+    """Envia comando para deletar evento específico nos Picos"""
+    global mqtt_client, mqtt_connected
+    
+    if not mqtt_connected or not mqtt_client:
+        return False
+    
+    try:
+        # Buscar Picos online
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id, topic FROM pico_devices WHERE status = 'online'")
+        picos = cursor.fetchall()
+        conn.close()
+        
+        for client_id, topic in picos:
+            evento_topic = f"{topic}/evento"
+            payload = json.dumps({
+                "id": evento_id,
+                "acao": "deletar",
+                "timestamp": datetime.now().isoformat()
+            })
+            mqtt_client.publish(evento_topic, payload, qos=1)
+            logger.info(f"🗑️ Comando de deleção do evento {evento_id} enviado para Pico {client_id}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao enviar comando de deleção: {e}")
+        return False
 
 # ===== THREAD DE SINCRONIZAÇÃO AUTOMÁTICA =====
 def thread_sincronizacao_automatica():
     """Thread que executa sincronização automática em intervalos regulares"""
-    logger.info("🔄 Thread de sincronização automática iniciada")
+    logger.info("🔄 Thread de sincronização automática MQTT iniciada")
     
     while True:
         try:
-            logger.info("🕐 Iniciando sincronização automática...")
-            resultado = sincronizar_todos_eventos_hoje()
-            
-            if resultado["picos"] > 0:
-                logger.info(f"✅ Sincronização automática concluída - {resultado['sincronizados']} eventos enviados para {resultado['picos']} Picos")
+            if mqtt_connected:
+                logger.info("🕐 Iniciando sincronização automática via MQTT...")
+                resultado = sincronizar_eventos_hoje_mqtt()
+                logger.info(f"✅ Sincronização automática concluída: {resultado}")
             else:
-                logger.warning("⚠️ Nenhum Pico online para sincronização")
+                logger.warning("⚠️ MQTT desconectado - pulando sincronização")
             
-            time.sleep(SYNC_INTERVAL)
+            time.sleep(60)  # Sincronização a cada 60 segundos
             
         except Exception as e:
             logger.error(f"❌ Erro na thread de sincronização: {e}")
-            time.sleep(30)  # Aguarda menos tempo em caso de erro
+            time.sleep(30)
 
 def iniciar_sincronizacao_automatica():
     """Inicia a thread de sincronização em background"""
     thread = threading.Thread(target=thread_sincronizacao_automatica, daemon=True)
     thread.start()
-    logger.info("🚀 Sistema de sincronização automática iniciado")
+    logger.info("🚀 Sistema de sincronização automática MQTT iniciado")
 
 # ===== INICIALIZAÇÃO =====
 init_db()
+inicializar_mqtt()
 iniciar_sincronizacao_automatica()
-
-# Descobre Picos na inicialização (em thread separada para não bloquear)
-if AUTO_DISCOVER_PICOS:
-    threading.Thread(target=descobrir_picos_na_rede, daemon=True).start()
 
 # ===== ROTAS PÚBLICAS =====
 @app.route('/api/login', methods=['POST'])
@@ -403,16 +456,11 @@ def adicionar_evento(usuario):
 
     logger.info(f"📝 Novo evento criado: {nome} em {data_evento} às {hora_evento}")
 
-    # Se o evento for para hoje, tenta sincronizar imediatamente
+    # Se o evento for para hoje, tenta sincronizar imediatamente via MQTT
     hoje = datetime.now().strftime('%Y-%m-%d')
     if data_evento == hoje:
-        logger.info(f"🆕 Evento para hoje detectado - iniciando sincronização imediata")
+        logger.info(f"🆕 Evento para hoje detectado - enviando via MQTT")
         
-        # Descobre Picos se lista estiver vazia
-        if not PICO_IPS:
-            descobrir_picos_na_rede()
-        
-        # Envia para todos os Picos online
         evento_data = {
             "id": evento_id,
             "nome": nome,
@@ -420,20 +468,8 @@ def adicionar_evento(usuario):
             "data": data_evento
         }
         
-        sincronizacao_realizada = False
-        for pico_ip in PICO_IPS:
-            if verificar_pico_online(pico_ip):
-                if enviar_evento_para_pico(pico_ip, evento_data):
-                    atualizar_display_pico(pico_ip)
-                    sincronizacao_realizada = True
-        
-        # Atualiza status de sincronização se pelo menos um Pico recebeu
-        if sincronizacao_realizada:
-            conn = sqlite3.connect('database.db')
-            cursor = conn.cursor()
-            cursor.execute("UPDATE eventos SET sincronizado = 1, tentativas_sync = 1 WHERE id = ?", (evento_id,))
-            conn.commit()
-            conn.close()
+        if enviar_evento_mqtt(evento_data):
+            atualizar_display_mqtt()
 
     return jsonify({'mensagem': 'Evento cadastrado com sucesso!', 'id': evento_id}), 201
 
@@ -482,32 +518,18 @@ def deletar_evento(usuario, evento_id):
     
     logger.info(f"🗑️ Evento {evento_id} removido do banco de dados")
     
-    # Se era de hoje e estava sincronizado, remove de todos os Picos também
+    # Se era de hoje e estava sincronizado, remove dos Picos via MQTT
     if data_evento == hoje and sincronizado:
-        for pico_ip in PICO_IPS:
-            if verificar_pico_online(pico_ip):
-                try:
-                    payload = {"id": evento_id, "acao": "deletar"}
-                    requests.post(f"http://{pico_ip}:{PICO_PORT}/api/evento", json=payload, timeout=5)
-                    atualizar_display_pico(pico_ip)
-                    logger.info(f"🗑️ Evento {evento_id} removido do Pico {pico_ip}")
-                except Exception as e:
-                    logger.error(f"❌ Erro ao remover evento do Pico {pico_ip}: {e}")
+        deletar_evento_mqtt(evento_id)
+        atualizar_display_mqtt()
     
     return jsonify({'mensagem': 'Evento deletado com sucesso!'}), 200
 
 @app.route('/api/eventos', methods=['DELETE'])
 @token_required
 def deletar_todos_eventos(usuario):
-    # Limpa todos os eventos de todos os Picos primeiro
-    for pico_ip in PICO_IPS:
-        if verificar_pico_online(pico_ip):
-            try:
-                limpar_eventos_pico(pico_ip)
-                atualizar_display_pico(pico_ip)
-                logger.info(f"🗑️ Todos os eventos removidos do Pico {pico_ip}")
-            except Exception as e:
-                logger.error(f"❌ Erro ao limpar Pico {pico_ip}: {e}")
+    # Limpa todos os eventos dos Picos via MQTT primeiro
+    limpar_eventos_mqtt()
     
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
@@ -517,107 +539,68 @@ def deletar_todos_eventos(usuario):
     
     logger.info("🗑️ Todos os eventos removidos do banco de dados")
     
+    # Atualiza displays
+    atualizar_display_mqtt()
+    
     return jsonify({'mensagem': 'Todos os eventos foram excluídos com sucesso!'}), 200
 
-# ===== ROTAS DE GERENCIAMENTO DE PICOS =====
-@app.route('/api/picos/descobrir', methods=['POST'])
+# ===== ROTAS DE GERENCIAMENTO MQTT =====
+@app.route('/api/mqtt/status', methods=['GET'])
 @token_required
-def descobrir_picos_manual(usuario):
-    """Força descoberta manual de Picos"""
-    logger.info("🔍 Iniciando descoberta manual de Picos...")
-    picos = descobrir_picos_na_rede()
+def status_mqtt(usuario):
+    """Retorna status da conexão MQTT"""
     return jsonify({
-        'mensagem': f'{len(picos)} Picos descobertos',
-        'picos': picos
+        'conectado': mqtt_connected,
+        'broker': MQTT_BROKER,
+        'client_id': MQTT_CLIENT_ID,
+        'topico_base': MQTT_TOPIC_BASE
     }), 200
 
 @app.route('/api/picos/status', methods=['GET'])
 @token_required
 def status_todos_picos(usuario):
-    """Retorna status de todos os Picos conhecidos"""
+    """Retorna status de todos os Picos conectados via MQTT"""
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT ip_address, name, last_sync, status FROM pico_devices")
+    cursor.execute("SELECT client_id, name, last_sync, status, topic FROM pico_devices")
     picos_db = cursor.fetchall()
     conn.close()
     
     status_picos = []
     
-    for ip, name, last_sync, status_db in picos_db:
-        online = verificar_pico_online(ip)
+    for client_id, name, last_sync, status, topic in picos_db:
         status_picos.append({
-            'ip': ip,
+            'client_id': client_id,
             'name': name,
-            'online': online,
+            'status': status,
             'last_sync': last_sync,
-            'status_db': status_db,
-            'url': f'http://{ip}:{PICO_PORT}'
+            'topic': topic
         })
-        
-        # Atualiza status no banco se mudou
-        if (online and status_db != 'online') or (not online and status_db != 'offline'):
-            conn = sqlite3.connect('database.db')
-            cursor = conn.cursor()
-            novo_status = 'online' if online else 'offline'
-            cursor.execute("UPDATE pico_devices SET status = ? WHERE ip_address = ?", (novo_status, ip))
-            conn.commit()
-            conn.close()
     
     return jsonify({
         'picos': status_picos,
         'total': len(status_picos),
-        'online': sum(1 for p in status_picos if p['online']),
-        'descoberta_automatica': AUTO_DISCOVER_PICOS,
-        'intervalo_sync': SYNC_INTERVAL
+        'online': sum(1 for p in status_picos if p['status'] == 'online'),
+        'mqtt_conectado': mqtt_connected,
+        'broker': MQTT_BROKER
     }), 200
 
 @app.route('/api/picos/sincronizar', methods=['POST'])
 @token_required
 def sincronizar_manual(usuario):
-    """Força sincronização manual com todos os Picos"""
-    logger.info("🔄 Iniciando sincronização manual...")
-    resultado = sincronizar_todos_eventos_hoje()
+    """Força sincronização manual via MQTT"""
+    logger.info("🔄 Iniciando sincronização manual via MQTT...")
+    resultado = sincronizar_eventos_hoje_mqtt()
     
     return jsonify({
-        'mensagem': 'Sincronização manual concluída!',
+        'mensagem': 'Sincronização manual via MQTT concluída!',
         'resultado': resultado
     }), 200
-
-@app.route('/api/picos/adicionar', methods=['POST'])
-@token_required
-def adicionar_pico_manual(usuario):
-    """Adiciona um Pico manualmente pelo IP"""
-    data = request.get_json()
-    ip = data.get('ip')
-    name = data.get('name', 'Pico Manual')
-    
-    if not ip:
-        return jsonify({'erro': 'IP é obrigatório'}), 400
-    
-    # Verifica se o Pico responde
-    if verificar_pico_online(ip):
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO pico_devices (ip_address, name, status, last_sync) 
-            VALUES (?, ?, ?, ?)
-        ''', (ip, name, 'online', datetime.now().isoformat()))
-        conn.commit()
-        conn.close()
-        
-        # Adiciona à lista global se não estiver
-        if ip not in PICO_IPS:
-            PICO_IPS.append(ip)
-        
-        logger.info(f"📱 Pico adicionado manualmente: {ip} - {name}")
-        return jsonify({'mensagem': f'Pico {ip} adicionado com sucesso!'}), 200
-    else:
-        return jsonify({'erro': f'Pico {ip} não responde ou não é válido'}), 400
 
 @app.route('/api/sistema/info', methods=['GET'])
 @token_required
 def info_sistema(usuario):
-    """Retorna informações do sistema de sincronização"""
+    """Retorna informações do sistema MQTT"""
     hoje = datetime.now().strftime('%Y-%m-%d')
     
     conn = sqlite3.connect('database.db')
@@ -645,14 +628,16 @@ def info_sistema(usuario):
         'eventos_sincronizados': eventos_sincronizados,
         'total_picos': total_picos,
         'picos_online': picos_online,
-        'descoberta_automatica': AUTO_DISCOVER_PICOS,
-        'intervalo_sincronizacao': SYNC_INTERVAL,
-        'max_tentativas': MAX_RETRY_ATTEMPTS,
-        'versao': '2.0',
+        'protocolo': 'MQTT',
+        'mqtt_conectado': mqtt_connected,
+        'broker': MQTT_BROKER,
+        'topico_base': MQTT_TOPIC_BASE,
+        'versao': '3.0-MQTT',
         'data_atual': hoje
     }), 200
 
 if __name__ == '__main__':
-    logger.info("🚀 Iniciando servidor Flask com sincronização automática Pico...")
-    logger.info(f"🔧 Configurações: Auto-discover={AUTO_DISCOVER_PICOS}, Sync={SYNC_INTERVAL}s")
+    logger.info("🚀 Iniciando servidor Flask com MQTT...")
+    logger.info(f"📡 MQTT Broker: {MQTT_BROKER}")
+    logger.info(f"📡 Tópico base: {MQTT_TOPIC_BASE}")
     app.run(host='0.0.0.0', port=5000, debug=True)
