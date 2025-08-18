@@ -26,4 +26,4 @@
 
 ## Dimensões:
 - Raspberry Pi: 21 mm x 51.3 mm x 3.9 mm
-- ILI9948: 84.96 mm x 56.34 mm - 3.5"
+- ST7789: 5 mm x 40 mm x 28 mm - 1.3"
