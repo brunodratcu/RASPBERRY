@@ -1,7 +1,6 @@
+import network
 import time
-import ujson
-import gc
-from umqtt.simple import MQTTClient
+import urequests
 from time import localtime
 from machine import Pin, SPI, unique_id, UART
 import ili9488
@@ -346,47 +345,15 @@ def loop_principal():
     print("Sistema finalizado")
 
 # ======== PROGRAMA PRINCIPAL ========
-def main():
-    """Função principal"""
-    try:
-        print("Iniciando sistema MQTT via SERIAL...")
-        
-        # Configurar UART
-        print(f"UART configurado: TX=Pin(0), RX=Pin(1), Baudrate=115200")
-        
-        # Inicializar display
-        print("Inicializando display ILI9488...")
-        display.clear()
-        display.draw_text8x8(10, 10, "INICIANDO SISTEMA...", color=0xFFFF)
-        display.draw_text8x8(10, 30, "MQTT via SERIAL", color=0x07E0)
-        display.draw_text8x8(10, 50, f"ID: {CLIENT_ID}", color=0x001F)
-        
-        print("Sistema inicializado com sucesso!")
-        print("\nInformações dos tópicos MQTT:")
-        print(f"  - Eventos: {TOPIC_EVENTO}")
-        print(f"  - Comandos: {TOPIC_COMANDO}")
-        print(f"  - Status: {TOPIC_STATUS}")
-        print(f"  - ACK: {TOPIC_ACK}")
-        print("\nFormato de comando serial:")
-        print("MQTT:{\"tipo\":\"evento\",\"payload\":{\"id\":1,\"nome\":\"Teste\",\"hora\":\"14:30\",\"data\":\"2025-08-17\",\"acao\":\"adicionar\"}}")
-        print("\nComandos diretos:")
-        print("STATUS - Solicita status")
-        print("RESET - Reinicia sistema")
-        
-        # Iniciar loop principal
-        loop_principal()
-        
-    except Exception as e:
-        print(f"Erro crítico no main: {e}")
-        # Tentar mostrar erro na tela
-        try:
-            display.clear()
-            display.draw_text8x8(10, 10, "ERRO CRITICO:", color=0xF800)
-            display.draw_text8x8(10, 30, str(e)[:50], color=0xF800)
-            display.draw_text8x8(10, 50, "Verifique conexao serial", color=0xFFE0)
-        except:
-            pass
+ip_local = conecta_wifi()
 
-# Executar programa principal
-if __name__ == "__main__":
-    main()
+while True:
+    if botao.value() == 0:  # Botão ligado (nível baixo porque está em PULL_UP)
+        evento = busca_evento(URL_JSON)
+        mostrar_evento(evento)
+    else:
+        # Se o botão estiver desligado -> apaga a tela
+        display.clear()
+        display.draw_text8x8(50, 120, "MagicMirror OFF", color=0xF800)
+    
+    time.sleep(1)  # Checa a cada 1s
