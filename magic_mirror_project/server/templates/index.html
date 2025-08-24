@@ -1,306 +1,631 @@
-<!-- templates/index.html -->
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Magic Mirror - Eventos</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Mirror - Cadastro de Eventos</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
 
-    html,body{height:100%; margin:0;}
-    body {
-      font-family: 'Orbitron', sans-serif;
-      background: linear-gradient(180deg, #020203 0%, #071018 100%);
-      color: #e6fbff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      -webkit-font-smoothing:antialiased;
-    }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    /* POPUP */
-    .popup {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(0, 0, 0, 0.86);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      z-index: 1000;
-    }
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background: linear-gradient(180deg, #020203 0%, #071018 100%);
+            color: #e6fbff;
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
-    .popup-content {
-      background: linear-gradient(135deg, rgba(10,10,20,0.6), rgba(20,20,30,0.5));
-      padding: 28px;
-      border: 1px solid rgba(0,240,255,0.18);
-      box-shadow: 0 6px 40px rgba(0,240,255,0.05);
-      border-radius: 12px;
-      width: 320px;
-      text-align: center;
-      backdrop-filter: blur(4px);
-    }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: linear-gradient(180deg, rgba(5,8,12,0.8), rgba(8,12,18,0.7));
+            border-radius: 14px;
+            padding: 40px;
+            box-shadow: 0 10px 60px rgba(0,0,0,0.6);
+            border: 1px solid rgba(0,240,255,0.12);
+            backdrop-filter: blur(10px);
+        }
 
-    .popup-content input[type="text"],
-    .popup-content input[type="password"]{
-      width: 94%;
-      padding: 12px;
-      margin: 10px 0;
-      border-radius: 8px;
-      border: 1px solid rgba(0,240,255,0.2);
-      background: rgba(0,0,0,0.45);
-      color: #e6fbff;
-      outline: none;
-    }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
 
-    .popup-content button {
-      margin-top: 8px;
-      padding: 10px 16px;
-      width: 96%;
-      border-radius: 8px;
-      border: 1px solid rgba(0,240,255,0.5);
-      background: rgba(0,240,255,0.06);
-      color: #00dfff;
-      cursor: pointer;
-      font-weight:700;
-    }
+        .header h1 {
+            color: #00e6ff;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
 
-    .popup-content h2 { margin: 0 0 8px; color: #00e6ff; }
+        .header p {
+            color: #9fffdc;
+            font-size: 1.1em;
+            opacity: 0.8;
+        }
 
-    /* MAIN PANEL */
-    #formContainer {
-      display: none;
-      width: 640px;
-      background: linear-gradient(180deg, rgba(5,8,12,0.6), rgba(8,12,18,0.5));
-      border-radius: 14px;
-      padding: 28px;
-      box-shadow: 0 10px 60px rgba(0,0,0,0.6);
-      border: 1px solid rgba(0,240,255,0.08);
-    }
+        .status {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: center;
+            border: 1px solid rgba(0,240,255,0.15);
+        }
 
-    h2 { color: #00e6ff; margin-top:0; }
+        .status.online {
+            background: rgba(0,240,100,0.1);
+            color: #00ff88;
+            border-color: rgba(0,240,100,0.3);
+        }
 
-    form#formEvento input[type="text"],
-    form#formEvento input[type="date"],
-    form#formEvento select {
-      width: 100%;
-      padding: 12px;
-      margin: 10px 0;
-      border-radius: 8px;
-      border: 1px solid rgba(0,240,255,0.12);
-      background: rgba(0,0,0,0.45);
-      color: #e6fbff;
-    }
+        .status.offline {
+            background: rgba(240,0,0,0.1);
+            color: #ff6b6b;
+            border-color: rgba(240,0,0,0.3);
+        }
 
-    form#formEvento button {
-      padding: 12px;
-      width: 100%;
-      margin-top:8px;
-      border-radius: 8px;
-      border: 1px solid rgba(0,240,255,0.25);
-      background: rgba(0,240,255,0.04);
-      color: #00dfff;
-      font-weight:700;
-      cursor: pointer;
-    }
+        .form-section {
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(0,240,255,0.08);
+        }
 
-    #eventosHoje { margin-top: 18px; }
+        .form-section h2 {
+            color: #00e6ff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+        }
 
-    ul#listaEventos { list-style:none; padding:0; margin:0; }
-    ul#listaEventos li{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      padding:10px 14px;
-      border-bottom:1px solid rgba(0,240,255,0.04);
-      color:#e6fbff;
-      font-size:14px;
-    }
+        .form-section h2::before {
+            content: "📅";
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
 
-    /* botão "x" transparente com letra azul elétrico */
-    .delete-btn {
-      background: transparent;
-      border: none;
-      color: #00bfff; /* azul elétrico */
-      font-weight: 700;
-      font-size: 18px;
-      cursor: pointer;
-      opacity: 0.95;
-    }
+        .form-group {
+            margin-bottom: 20px;
+        }
 
-    #resetButton {
-      margin-top: 14px;
-      width: 100%;
-      padding: 12px;
-      border-radius: 8px;
-      border: 1px solid rgba(0,240,255,0.12);
-      background: transparent;
-      color: #00bfff; /* azul elétrico */
-      cursor: pointer;
-      font-weight:700;
-    }
-    #resetButton:hover { opacity: 0.9; }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #e6fbff;
+            font-weight: 600;
+        }
 
-    #mensagemCadastro { color: #9fffdc; min-height:18px; margin-top:6px; }
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid rgba(0,240,255,0.2);
+            border-radius: 8px;
+            font-size: 16px;
+            background: rgba(0,0,0,0.4);
+            color: #e6fbff;
+            font-family: 'Orbitron', sans-serif;
+            transition: all 0.3s ease;
+        }
 
-    /* pequeno responsive */
-    @media (max-width:700px){
-      #formContainer { width: 92%; }
-      .popup-content { width: 90%; }
-    }
-  </style>
+        .form-group input:focus {
+            outline: none;
+            border-color: #00e6ff;
+            box-shadow: 0 0 0 3px rgba(0, 230, 255, 0.1);
+            background: rgba(0,0,0,0.6);
+        }
+
+        .form-group input::placeholder {
+            color: rgba(230, 251, 255, 0.5);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, rgba(0,240,255,0.2) 0%, rgba(0,230,255,0.1) 100%);
+            color: #00dfff;
+            border: 1px solid rgba(0,240,255,0.3);
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, rgba(0,240,255,0.3) 0%, rgba(0,230,255,0.2) 100%);
+            border-color: #00e6ff;
+            box-shadow: 0 5px 20px rgba(0,230,255,0.2);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .eventos-hoje {
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            padding: 30px;
+            border: 1px solid rgba(0,240,255,0.08);
+        }
+
+        .eventos-hoje h2 {
+            color: #00e6ff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+        }
+
+        .eventos-hoje h2::before {
+            content: "📋";
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
+
+        .evento-item {
+            background: rgba(0,240,255,0.05);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(0,240,255,0.15);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .evento-item:hover {
+            background: rgba(0,240,255,0.08);
+            border-color: rgba(0,240,255,0.25);
+        }
+
+        .evento-info {
+            flex-grow: 1;
+        }
+
+        .evento-hora {
+            font-weight: 700;
+            color: #00dfff;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .evento-nome {
+            color: #e6fbff;
+            opacity: 0.9;
+        }
+
+        .evento-status {
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .evento-status.sincronizado {
+            background: rgba(0,240,100,0.2);
+            color: #00ff88;
+            border: 1px solid rgba(0,240,100,0.3);
+        }
+
+        .evento-status.pendente {
+            background: rgba(255,180,0,0.2);
+            color: #ffb400;
+            border: 1px solid rgba(255,180,0,0.3);
+        }
+
+        .btn-delete {
+            background: transparent;
+            color: #00bfff;
+            border: 1px solid rgba(0,191,255,0.3);
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+
+        .btn-delete:hover {
+            background: rgba(0,191,255,0.1);
+            border-color: #00bfff;
+        }
+
+        .btn-reset {
+            margin-top: 20px;
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(0,240,255,0.2);
+            background: transparent;
+            color: #00bfff;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: 'Orbitron', sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        .btn-reset:hover {
+            background: rgba(0,240,255,0.1);
+            border-color: #00bfff;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .message.success {
+            background: rgba(0,240,100,0.1);
+            color: #00ff88;
+            border: 1px solid rgba(0,240,100,0.3);
+        }
+
+        .message.error {
+            background: rgba(240,0,0,0.1);
+            color: #ff6b6b;
+            border: 1px solid rgba(240,0,0,0.3);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #00e6ff;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(0,230,255,0.2);
+            border-top: 3px solid #00e6ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-eventos {
+            text-align: center;
+            padding: 40px;
+            color: rgba(230, 251, 255, 0.6);
+        }
+
+        .no-eventos::before {
+            content: "📝";
+            font-size: 3em;
+            display: block;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .form-section, .eventos-hoje {
+                padding: 20px;
+            }
+
+            .evento-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .evento-status, .btn-delete {
+                margin-top: 10px;
+            }
+        }
+    </style>
 </head>
 <body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🪞 Magic Mirror</h1>
+            <p>Sistema de Eventos Offline - Comunicação RS-232</p>
+        </div>
 
-<!-- POPUP LOGIN (form para permitir Enter) -->
-<div class="popup" id="loginPopup">
-  <form class="popup-content" id="formLogin" onsubmit="event.preventDefault(); fazerLogin();">
-    <h2>ACESSO</h2>
-    <input id="username" type="text" placeholder="Usuário" required autocomplete="username">
-    <input id="password" type="password" placeholder="Senha" required autocomplete="current-password">
-    <button type="submit">Entrar</button>
-    <p id="loginStatus" style="color:#ff6b6b;"></p>
-  </form>
-</div>
+        <!-- Status do Sistema -->
+        <div id="system-status" class="status offline">
+            <strong>Status:</strong> <span id="status-text">Verificando conexão...</span>
+        </div>
 
-<!-- PAINEL PRINCIPAL -->
-<div id="formContainer">
-  <h2>Magic Mirror — Eventos</h2>
+        <!-- Mensagens -->
+        <div id="message-container"></div>
 
-  <form id="formEvento">
-    <label for="nome">Nome do Evento:</label>
-    <input type="text" name="nome" placeholder="Nome do Evento" required>
-    <!-- calendário nativo -->
-    <label for="data">Data do Evento:</label>
-    <input type="date" name="data" id="data" required>
-    <!-- campo de hora livre -->
-    <label for="hora">Hora do Evento:</label>
-    <input type="time" name="hora" id="hora" required>
+        <!-- Loading -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Processando...</p>
+        </div>
 
+        <!-- Formulário de Cadastro -->
+        <div class="form-section">
+            <h2>Cadastrar Novo Evento</h2>
+            <form id="event-form">
+                <div class="form-group">
+                    <label for="nome">Nome do Evento:</label>
+                    <input type="text" id="nome" name="nome" required 
+                           placeholder="Ex: Reunião de equipe, Consulta médica...">
+                </div>
+                
+                <div class="form-group">
+                    <label for="data">Data:</label>
+                    <input type="date" id="data" name="data" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="hora">Horário:</label>
+                    <input type="time" id="hora" name="hora" required>
+                </div>
+                
+                <button type="submit" class="btn" id="btn-submit">
+                    📅 Cadastrar Evento
+                </button>
+                <p id="mensagemCadastro" style="color: #9fffdc; min-height: 20px; margin-top: 10px; text-align: center;"></p>
+            </form>
+        </div>
 
-    <button type="submit">Cadastrar</button>
-    <p id="mensagemCadastro"></p>
-  </form>
+        <!-- Lista de Eventos de Hoje -->
+        <div class="eventos-hoje">
+            <h2>Eventos de Hoje</h2>
+            <div id="eventos-lista">
+                <div class="no-eventos">
+                    Carregando eventos...
+                </div>
+            </div>
+            <button id="resetButton" class="btn-reset" onclick="limparHistorico()">
+                🧨 Limpar Histórico de Eventos
+            </button>
+        </div>
+    </div>
 
-  <div id="eventosHoje">
-    <h3>Eventos de Hoje</h3>
-    <ul id="listaEventos"></ul>
-    <button id="resetButton" onclick="limparHistorico()">🧨 Limpar Histórico de Eventos</button>
-  </div>
-</div>
-
-<script>
-  // Faz login e oculta popup
-  async function fazerLogin(){
-    document.getElementById("loginStatus").innerText = "";
-    const username = document.getElementById("username").value;
-    const password = document.getElementById("password").value;
-
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({username, password})
-      });
-      const data = await res.json();
-      if (res.ok && data.token){
-        localStorage.setItem("token", data.token);
-        document.getElementById("loginPopup").style.display = "none";
-        document.getElementById("formContainer").style.display = "block";
-        buscarEventosHoje();
-      } else {
-        document.getElementById("loginStatus").innerText = data.message || "Erro de login";
-      }
-    } catch (e) {
-      document.getElementById("loginStatus").innerText = "Erro de conexão";
-      console.error(e);
-    }
-  }
-
-  // Handle Enter in popup automatically since we're using a <form> with onsubmit
-
-  // Cadastro de evento
-  document.getElementById("formEvento").addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    const form = e.target;
-    const evento = {
-      nome: form.nome.value,
-      data: form.data.value,
-      hora: form.hora.value
-    };
-    const token = localStorage.getItem("token");
-    const res = await fetch("/api/eventos", {
-      method: "POST",
-      headers: {"Content-Type":"application/json","Authorization": `Bearer ${token}`},
-      body: JSON.stringify(evento)
-    });
-    const json = await res.json();
-    const mensagemElem = document.getElementById("mensagemCadastro");
-    if (res.ok){
-      mensagemElem.innerText = "Evento cadastrado com sucesso!";
-      form.reset();
-      buscarEventosHoje();
-      setTimeout(()=> mensagemElem.innerText = "", 3000);
-    } else {
-      mensagemElem.innerText = json.message || "Erro ao cadastrar";
-    }
-  });
-
-  // Buscar eventos do dia
-  async function buscarEventosHoje(){
-    const token = localStorage.getItem("token");
-    if(!token) return;
-    try {
-      const res = await fetch("/api/eventos-hoje", { headers: {"Authorization": `Bearer ${token}`}});
-      if (!res.ok) { console.error("fetch eventos hoje", await res.text()); return; }
-      const eventos = await res.json();
-      const lista = document.getElementById("listaEventos");
-      lista.innerHTML = "";
-      if (eventos.length === 0){
-        lista.innerHTML = "<li>Nenhum evento hoje.</li>";
-      } else {
-        eventos.forEach(ev => {
-          const li = document.createElement("li");
-          li.innerHTML = `
-            <span>${ev.nome} — ${ev.hora}</span>
-            <button class="delete-btn" onclick="deletarEvento(${ev.id})">✖</button>
-          `;
-          lista.appendChild(li);
+    <script>
+        // Configuração da API
+        const API_BASE = window.location.origin;
+        
+        // Elementos DOM
+        const form = document.getElementById('event-form');
+        const messageContainer = document.getElementById('message-container');
+        const loading = document.getElementById('loading');
+        const btnSubmit = document.getElementById('btn-submit');
+        const eventosLista = document.getElementById('eventos-lista');
+        const systemStatus = document.getElementById('system-status');
+        const statusText = document.getElementById('status-text');
+        const mensagemCadastro = document.getElementById('mensagemCadastro');
+        
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', function() {
+            // Define data padrão como hoje
+            const hoje = new Date().toISOString().split('T')[0];
+            document.getElementById('data').value = hoje;
+            
+            // Auto-foco no campo nome
+            document.getElementById('nome').focus();
+            
+            // Carrega dados iniciais
+            verificarStatusSistema();
+            carregarEventosHoje();
+            
+            // Auto-refresh a cada 30 segundos
+            setInterval(carregarEventosHoje, 30000);
+            setInterval(verificarStatusSistema, 60000);
         });
-      }
-    } catch (e){
-      console.error("Erro buscarEventosHoje:", e);
-    }
-  }
-
-  // Deletar único evento
-  async function deletarEvento(id){
-    const token = localStorage.getItem("token");
-    if(!token) { alert("Faça login"); return; }
-    if(!confirm("Excluir esse evento?")) return;
-    try {
-      const res = await fetch(`/api/eventos/${id}`, { method:"DELETE", headers: {"Authorization": `Bearer ${token}`}});
-      if (res.ok) buscarEventosHoje();
-      else alert("Falha ao excluir");
-    } catch (e) { alert("Erro de rede"); console.error(e); }
-  }
-
-  // Limpar histórico (deleta todos)
-  async function limparHistorico(){
-    const token = localStorage.getItem("token");
-    if(!token) { alert("Faça login"); return; }
-    if(!confirm("Tem certeza que quer apagar todos os eventos?")) return;
-    try {
-      const res = await fetch("/api/eventos", { method:"DELETE", headers: {"Authorization": `Bearer ${token}`}});
-      if (res.ok) { alert("Histórico apagado"); buscarEventosHoje(); }
-      else alert("Erro ao apagar");
-    } catch (e) { alert("Erro de rede"); console.error(e); }
-  }
-
-  // opcional: auto foco no campo username ao carregar
-  window.addEventListener("load", ()=> document.getElementById("username").focus());
-</script>
-
+        
+        // Verificar status do sistema
+        async function verificarStatusSistema() {
+            try {
+                const response = await fetch(`${API_BASE}/api/sistema/info`);
+                const data = await response.json();
+                
+                if (data.rs232_conectado) {
+                    systemStatus.className = 'status online';
+                    statusText.textContent = `RS-232 Conectado (${data.porta_serial}) - ${data.dispositivos_online} dispositivo(s) online`;
+                } else {
+                    systemStatus.className = 'status offline';
+                    statusText.textContent = `RS-232 Desconectado (${data.porta_serial || 'COM3'}) - Aguardando conexão`;
+                }
+            } catch (error) {
+                systemStatus.className = 'status offline';
+                statusText.textContent = 'Erro de conexão com o servidor';
+            }
+        }
+        
+        // Mostrar mensagem
+        function mostrarMensagem(texto, tipo = 'success') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${tipo}`;
+            messageDiv.textContent = texto;
+            
+            messageContainer.innerHTML = '';
+            messageContainer.appendChild(messageDiv);
+            
+            // Remove mensagem após 5 segundos
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+        
+        // Toggle loading
+        function toggleLoading(show) {
+            loading.style.display = show ? 'block' : 'none';
+            btnSubmit.disabled = show;
+        }
+        
+        // Submit do formulário
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(form);
+            const eventData = {
+                nome: formData.get('nome'),
+                data: formData.get('data'),
+                hora: formData.get('hora')
+            };
+            
+            toggleLoading(true);
+            mensagemCadastro.textContent = '';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(eventData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    mensagemCadastro.textContent = '✅ Evento cadastrado com sucesso!';
+                    mensagemCadastro.style.color = '#00ff88';
+                    form.reset();
+                    
+                    // Redefine data para hoje e foco no nome
+                    const hoje = new Date().toISOString().split('T')[0];
+                    document.getElementById('data').value = hoje;
+                    document.getElementById('nome').focus();
+                    
+                    // Recarrega lista se for evento de hoje
+                    const hoje_str = new Date().toISOString().split('T')[0];
+                    if (eventData.data === hoje_str) {
+                        setTimeout(carregarEventosHoje, 1000);
+                    }
+                    
+                    // Limpa mensagem após 3 segundos
+                    setTimeout(() => {
+                        mensagemCadastro.textContent = '';
+                    }, 3000);
+                    
+                } else {
+                    mensagemCadastro.textContent = `❌ Erro: ${result.erro || 'Erro desconhecido'}`;
+                    mensagemCadastro.style.color = '#ff6b6b';
+                }
+            } catch (error) {
+                mensagemCadastro.textContent = '❌ Erro de conexão com o servidor';
+                mensagemCadastro.style.color = '#ff6b6b';
+            } finally {
+                toggleLoading(false);
+            }
+        });
+        
+        // Carregar eventos de hoje
+        async function carregarEventosHoje() {
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos-hoje`);
+                const eventos = await response.json();
+                
+                if (eventos.length === 0) {
+                    eventosLista.innerHTML = `
+                        <div class="no-eventos">
+                            Nenhum evento cadastrado para hoje
+                        </div>
+                    `;
+                } else {
+                    eventosLista.innerHTML = eventos.map(evento => `
+                        <div class="evento-item">
+                            <div class="evento-info">
+                                <div class="evento-hora">${evento.hora}</div>
+                                <div class="evento-nome">${evento.nome}</div>
+                            </div>
+                            <div style="display: flex; align-items: center;">
+                                <span class="evento-status ${evento.sincronizado ? 'sincronizado' : 'pendente'}">
+                                    ${evento.sincronizado ? '✅ Sincronizado' : '⏳ Pendente'}
+                                </span>
+                                <button class="btn-delete" onclick="deletarEvento(${evento.id})">
+                                    ✖ Excluir
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                eventosLista.innerHTML = `
+                    <div class="no-eventos">
+                        Erro ao carregar eventos
+                    </div>
+                `;
+            }
+        }
+        
+        // Deletar evento individual
+        async function deletarEvento(id) {
+            if (!confirm('Tem certeza que deseja excluir este evento?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    mostrarMensagem('✅ Evento excluído com sucesso!', 'success');
+                    carregarEventosHoje();
+                } else {
+                    mostrarMensagem('❌ Erro ao excluir evento', 'error');
+                }
+            } catch (error) {
+                mostrarMensagem('❌ Erro de conexão com o servidor', 'error');
+            }
+        }
+        
+        // Limpar histórico completo
+        async function limparHistorico() {
+            if (!confirm('Tem certeza que deseja apagar TODOS os eventos?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    mostrarMensagem('✅ Histórico de eventos limpo com sucesso!', 'success');
+                    carregarEventosHoje();
+                } else {
+                    mostrarMensagem('❌ Erro ao limpar histórico', 'error');
+                }
+            } catch (error) {
+                mostrarMensagem('❌ Erro de conexão com o servidor', 'error');
+            }
+        }
+    </script>
 </body>
 </html>
