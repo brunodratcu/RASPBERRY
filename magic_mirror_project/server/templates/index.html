@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Magic Mirror - Cadastro de Eventos</title>
+    <title>Magic Mirror</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
 
@@ -355,8 +355,8 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>🪞 Magic Mirror</h1>
-            <p>Sistema de Eventos Offline - Comunicação RS-232</p>
+            <h1>Minha agenda</h1>
+            <p>Sistema de Eventos Offline</p>
         </div>
 
         <!-- Status do Sistema -->
@@ -452,12 +452,12 @@
                 const response = await fetch(`${API_BASE}/api/sistema/info`);
                 const data = await response.json();
                 
-                if (data.rs232_conectado) {
+                if (data.lora_conectado) {
                     systemStatus.className = 'status online';
-                    statusText.textContent = `RS-232 Conectado (${data.porta_serial}) - ${data.dispositivos_online} dispositivo(s) online`;
+                    statusText.textContent = `LoRa Conectado (${data.lora_frequency}) - ${data.total_dispositivos} dispositivo(s) registrados`;
                 } else {
                     systemStatus.className = 'status offline';
-                    statusText.textContent = `RS-232 Desconectado (${data.porta_serial || 'COM3'}) - Aguardando conexão`;
+                    statusText.textContent = `LoRa Desconectado (${data.lora_frequency || '433MHz'}) - Aguardando conexão`;
                 }
             } catch (error) {
                 systemStatus.className = 'status offline';
@@ -565,7 +565,7 @@
                             </div>
                             <div style="display: flex; align-items: center;">
                                 <span class="evento-status ${evento.sincronizado ? 'sincronizado' : 'pendente'}">
-                                    ${evento.sincronizado ? '✅ Sincronizado' : '⏳ Pendente'}
+                                    ${evento.sincronizado ? '✅ Enviado' : '📡 Aguardando'}
                                 </span>
                                 <button class="btn-delete" onclick="deletarEvento(${evento.id})">
                                     ✖ Excluir
