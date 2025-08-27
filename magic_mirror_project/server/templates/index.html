@@ -832,7 +832,7 @@
 
         async function connectToDevice(address, name) {
             try {
-                mostrarMensagem('Conectando ao dispositivo...', 'info');
+                mostrarMensagem('🔵 Conectando ao dispositivo BLE...', 'info');
                 
                 const response = await fetch(`${API_BASE}/api/bluetooth/connect`, {
                     method: 'POST',
@@ -848,23 +848,39 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    connectedDevice = { address, name };
-                    updateBluetoothButton();
-                    updateDeviceList();
+                    mostrarMensagem(`🔵 Estabelecendo conexão BLE com ${name}...`, 'info');
                     
-                    connectedInfo.style.display = 'block';
-                    connectedDeviceName.textContent = name;
-                    
-                    mostrarMensagem(`Conectado ao dispositivo: ${name}`, 'success');
-                    
-                    // Sincroniza eventos automaticamente
-                    setTimeout(sincronizarManual, 2000);
+                    // Aguarda um pouco para conexão estabelecer
+                    setTimeout(async () => {
+                        // Verifica se conexão foi estabelecida
+                        const statusResponse = await fetch(`${API_BASE}/api/bluetooth/status`);
+                        const status = await statusResponse.json();
+                        
+                        if (status.connected && status.device) {
+                            connectedDevice = status.device;
+                            updateBluetoothButton();
+                            updateDeviceList();
+                            
+                            connectedInfo.style.display = 'block';
+                            connectedDeviceName.textContent = status.device.name;
+                            
+                            mostrarMensagem(`✅ Conectado com sucesso via BLE: ${status.device.name}`, 'success');
+                            
+                            // Atualiza status do sistema
+                            verificarStatusSistema();
+                            
+                            // Sincroniza eventos automaticamente
+                            setTimeout(sincronizarManual, 2000);
+                        } else {
+                            mostrarMensagem(`❌ Falha na conexão BLE com ${name}`, 'error');
+                        }
+                    }, 3000);
                     
                 } else {
                     throw new Error(result.erro || 'Falha na conexão');
                 }
             } catch (error) {
-                mostrarMensagem('Erro ao conectar: ' + error.message, 'error');
+                mostrarMensagem('❌ Erro ao conectar: ' + error.message, 'error');
             }
         }
 
@@ -879,17 +895,25 @@
                         updateBluetoothButton();
                         
                         connectedInfo.style.display = 'block';
-                        connectedDeviceName.textContent = status.device.name;
+                        connectedDeviceName.innerHTML = `
+                            <strong>${status.device.name}</strong><br>
+                            <small>Endereço: ${status.device.address}</small><br>
+                            <small>Status: Conectado via BLE</small>
+                        `;
+                        
+                        console.log('Conexão BLE confirmada:', status.device.name);
                     }
                 } else {
                     if (connectedDevice) {
                         connectedDevice = null;
                         updateBluetoothButton();
                         connectedInfo.style.display = 'none';
+                        console.log('Conexão BLE perdida');
                     }
                 }
             } catch (error) {
-                // Silencioso - erro de conexão com servidor
+                // Erro silencioso - problema de conexão com servidor
+                console.error('Erro ao verificar status BLE:', error);
             }
         }
 
@@ -909,12 +933,15 @@
                 const response = await fetch(`${API_BASE}/api/sistema/info`);
                 const data = await response.json();
                 
-                if (data.bluetooth_conectado) {
+                if (data.bluetooth_conectado && data.dispositivo_conectado) {
                     systemStatus.className = 'status online';
-                    statusText.textContent = `Bluetooth Conectado - ${data.total_dispositivos} dispositivo(s) registrados`;
+                    statusText.textContent = `🔵 Conectado via BLE: ${data.dispositivo_conectado}`;
+                } else if (data.bluetooth_disponivel) {
+                    systemStatus.className = 'status offline';
+                    statusText.textContent = `🔵 BLE Disponível - Aguardando conexão`;
                 } else {
                     systemStatus.className = 'status offline';
-                    statusText.textContent = 'Bluetooth Desconectado - Aguardando conexão';
+                    statusText.textContent = `❌ BLE não disponível`;
                 }
             } catch (error) {
                 systemStatus.className = 'status offline';

@@ -7,52 +7,46 @@ import threading
 import time
 import logging
 import os
-import sys
 import asyncio
 
-# Importação BLE
+# BLE
 try:
     import bleak
-    from bleak import BleakScanner, BleakClient, BleakServer, BleakGATTCharacteristic, BleakGATTService
-    from bleak.backends.service import BleakGATTService
-    from bleak.backends.characteristic import BleakGATTCharacteristic
+    from bleak import BleakScanner, BleakClient
     BLE_AVAILABLE = True
 except ImportError:
     BLE_AVAILABLE = False
-    print("ERRO: Biblioteca bleak não encontrada. Instale com: pip install bleak")
+    print("ERRO: Instale bleak com: pip install bleak")
 
 app = Flask(__name__)
 CORS(app)
 
-# ===== CONFIGURAÇÕES BLE =====
-BLE_SERVICE_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
-BLE_CHAR_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ef"
-BLE_SERVER_NAME = "Magic Mirror Server"
+# Configurações BLE - DEVEM COINCIDIR COM O PICO
+SERVICE_UUID = "00001800-0000-1000-8000-00805f9b34fb"  # Generic Access Service
+EVENTS_CHAR_UUID = "00002a00-0000-1000-8000-00805f9b34fb"  # Device Name
+RESPONSE_CHAR_UUID = "00002a01-0000-1000-8000-00805f9b34fb"  # Appearance
 
-# Variáveis globais BLE
-ble_server = None
+# Estado global
+ble_client = None
 ble_connected = False
-ble_client_device = None
-ble_message_buffer = ""
+ble_device_info = None
 discovered_devices = []
 scanning = False
-ble_loop = None
-ble_thread = None
+push_queue = []
+response_buffer = ""
 
-# Configuração de logging
+# Logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# ===== BANCO DE DADOS =====
 def init_db():
-    """Inicializa banco de dados SQLite"""
+    """Inicializa banco de dados"""
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     
-    # Tabela de eventos
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS eventos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +59,6 @@ def init_db():
         )
     ''')
     
-    # Tabela de dispositivos BLE
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pico_devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,10 +67,6 @@ def init_db():
             ble_address TEXT,
             last_sync TEXT,
             status TEXT DEFAULT 'offline',
-            communication_type TEXT DEFAULT 'ble',
-            signal_strength INTEGER DEFAULT 0,
-            firmware_version TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             events_count INTEGER DEFAULT 0,
             last_heartbeat TEXT
         )
@@ -85,678 +74,444 @@ def init_db():
     
     conn.commit()
     conn.close()
-    logger.info("Banco de dados inicializado para BLE")
+    logger.info("Banco de dados inicializado")
 
-# ===== FUNÇÕES BLE SERVIDOR =====
-class BLEServer:
-    def __init__(self):
-        self.server = None
-        self.service = None
-        self.characteristic = None
-        self.connected_device = None
-        self.message_buffer = ""
-        
-    async def start_server(self):
-        """Inicia servidor BLE"""
-        try:
-            logger.info("Iniciando servidor BLE...")
-            
-            # Cria serviço e característica
-            service = BleakGATTService(BLE_SERVICE_UUID, "Magic Mirror Service", True)
-            
-            char = BleakGATTCharacteristic(
-                BLE_CHAR_UUID,
-                ["read", "write", "notify"],
-                service,
-                "Magic Mirror Data"
-            )
-            
-            service.add_characteristic(char)
-            
-            # Inicia servidor
-            self.server = BleakServer(name=BLE_SERVER_NAME)
-            self.server.add_service(service)
-            
-            # Callbacks
-            self.server.set_connect_callback(self.on_connect)
-            self.server.set_disconnect_callback(self.on_disconnect)
-            char.set_write_callback(self.on_write)
-            
-            await self.server.start()
-            logger.info(f"Servidor BLE iniciado: {BLE_SERVER_NAME}")
-            
-            self.service = service
-            self.characteristic = char
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Erro ao iniciar servidor BLE: {e}")
-            return False
-    
-    async def on_connect(self, device):
-        """Callback de conexão"""
-        global ble_connected, ble_client_device
-        
-        self.connected_device = device
-        ble_connected = True
-        ble_client_device = {
-            'address': device.address,
-            'name': device.name or f"Dispositivo-{device.address[-6:]}"
-        }
-        
-        logger.info(f"Cliente BLE conectado: {ble_client_device['name']} ({device.address})")
-        
-        # Registra dispositivo
-        registrar_dispositivo_ble(ble_client_device)
-        
-        # Envia handshake
-        await self.send_handshake()
-    
-    async def on_disconnect(self, device):
-        """Callback de desconexão"""
-        global ble_connected, ble_client_device
-        
-        logger.info(f"Cliente BLE desconectado: {device.address}")
-        
-        ble_connected = False
-        ble_client_device = None
-        self.connected_device = None
-        self.message_buffer = ""
-    
-    async def on_write(self, characteristic, data):
-        """Callback de escrita"""
-        try:
-            message_part = data.decode('utf-8')
-            self.message_buffer += message_part
-            
-            # Processa mensagens completas
-            while '\n' in self.message_buffer:
-                line, self.message_buffer = self.message_buffer.split('\n', 1)
-                if line.strip():
-                    await self.processar_mensagem(line.strip())
-                    
-        except Exception as e:
-            logger.error(f"Erro ao processar escrita BLE: {e}")
-    
-    async def processar_mensagem(self, message_str):
-        """Processa mensagem recebida"""
-        try:
-            message = json.loads(message_str)
-            action = message.get("action", "")
-            device_id = message.get("device_id", "")
-            
-            logger.info(f"Mensagem BLE: {action} de {device_id}")
-            
-            # Atualiza heartbeat
-            atualizar_heartbeat_dispositivo(device_id)
-            
-            if action == "ping":
-                await self.send_ping_response(device_id)
-            elif action == "device_info":
-                await self.processar_device_info(message)
-            elif action == "device_status":
-                processar_status_dispositivo_ble(message)
-            elif action == "event_completed":
-                processar_evento_concluido(message)
-            elif action == "sync_complete":
-                processar_sync_completo_ble(message)
-            elif action == "request_events":
-                await self.sincronizar_eventos(device_id)
-            else:
-                logger.warning(f"Ação BLE desconhecida: {action}")
-                
-        except json.JSONDecodeError as e:
-            logger.warning(f"JSON inválido: {e} - {message_str}")
-        except Exception as e:
-            logger.error(f"Erro ao processar mensagem BLE: {e}")
-    
-    async def send_handshake(self):
-        """Envia handshake inicial"""
-        handshake = {
-            "action": "handshake",
-            "server": "Magic Mirror BLE Server",
-            "protocol": "ble",
-            "version": "2.0",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        await self.send_data(handshake)
-    
-    async def send_ping_response(self, device_id):
-        """Responde ping"""
-        response = {
-            "action": "ping_response",
-            "device_id": device_id,
-            "server_time": datetime.now().isoformat(),
-            "status": "ok"
-        }
-        await self.send_data(response)
-    
-    async def processar_device_info(self, data):
-        """Processa informações do dispositivo"""
-        device_id = data.get("device_id")
-        
-        try:
-            conn = sqlite3.connect('database.db')
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT OR REPLACE INTO pico_devices 
-                (device_id, name, ble_address, status, communication_type, 
-                 firmware_version, last_sync, last_heartbeat) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                device_id,
-                data.get('name', 'Magic Mirror BLE'),
-                ble_client_device['address'] if ble_client_device else '',
-                'online',
-                'ble',
-                data.get('firmware_version', '2.0.0-BLE'),
-                datetime.now().isoformat(),
-                datetime.now().isoformat()
-            ))
-            
-            conn.commit()
-            conn.close()
-            
-            logger.info(f"Dispositivo BLE registrado: {device_id}")
-            
-            # Sincroniza eventos automaticamente
-            await self.sincronizar_eventos(device_id)
-            
-        except Exception as e:
-            logger.error(f"Erro ao processar device info: {e}")
-    
-    async def sincronizar_eventos(self, device_id):
-        """Sincroniza eventos de hoje"""
-        try:
-            hoje = datetime.now().strftime('%Y-%m-%d')
-            
-            conn = sqlite3.connect('database.db')
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, nome, hora, data 
-                FROM eventos 
-                WHERE data = ? 
-                ORDER BY hora
-            """, (hoje,))
-            eventos_hoje = cursor.fetchall()
-            conn.close()
-            
-            events_list = []
-            for event_id, nome, hora, data in eventos_hoje:
-                events_list.append({
-                    "id": event_id,
-                    "nome": nome,
-                    "hora": hora,
-                    "data": data
-                })
-            
-            payload = {
-                "action": "sync_events",
-                "device_id": device_id,
-                "events": events_list,
-                "sync_time": datetime.now().isoformat(),
-                "filter_date": hoje
-            }
-            
-            await self.send_data(payload)
-            logger.info(f"Sincronizados {len(events_list)} eventos para {device_id}")
-            
-        except Exception as e:
-            logger.error(f"Erro na sincronização: {e}")
-    
-    async def send_data(self, data):
-        """Envia dados para cliente"""
-        if not self.connected_device or not self.characteristic:
-            return False
-        
-        try:
-            message = json.dumps(data, ensure_ascii=False)
-            
-            # Divide em chunks para respeitar MTU
-            chunk_size = 20
-            chunks = [message[i:i+chunk_size] for i in range(0, len(message), chunk_size)]
-            
-            for i, chunk in enumerate(chunks):
-                if i == len(chunks) - 1:
-                    chunk += "\n"  # Marca fim da mensagem
-                
-                await self.characteristic.notify(chunk.encode('utf-8'))
-                await asyncio.sleep(0.01)  # Pequeno delay
-            
-            logger.debug(f"Enviado BLE: {data.get('action', 'unknown')}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Erro ao enviar BLE: {e}")
-            return False
-
-# Instância global do servidor BLE
-ble_server_instance = None
-
-# ===== FUNÇÕES BLE CLIENTE (DESCOBERTA) =====
-async def scan_ble_devices():
-    """Escaneia dispositivos BLE"""
-    global discovered_devices
-    
-    if not BLE_AVAILABLE:
-        return []
-    
-    try:
-        logger.info("Escaneando dispositivos BLE...")
-        devices = await BleakScanner.discover(timeout=10.0)
-        
-        ble_devices = []
-        for device in devices:
-            if device.name and ("MagicMirror" in device.name or "Magic" in device.name):
-                device_info = {
-                    'address': device.address,
-                    'name': device.name,
-                    'rssi': getattr(device, 'rssi', -50),
-                    'type': 'BLE'
-                }
-                ble_devices.append(device_info)
-                logger.info(f"Dispositivo BLE encontrado: {device.name} ({device.address})")
-        
-        discovered_devices.extend(ble_devices)
-        return ble_devices
-        
-    except Exception as e:
-        logger.error(f"Erro no scan BLE: {e}")
-        return []
-
-# ===== FUNÇÕES AUXILIARES =====
-def registrar_dispositivo_ble(device_info):
-    """Registra dispositivo BLE no banco"""
-    try:
-        device_id = device_info['address'].replace(':', '').replace('-', '')
-        
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT OR REPLACE INTO pico_devices 
-            (device_id, name, ble_address, status, communication_type, last_heartbeat) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            device_id,
-            device_info['name'],
-            device_info['address'],
-            'online',
-            'ble',
-            datetime.now().isoformat()
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"Dispositivo BLE registrado: {device_info['name']}")
-        
-    except Exception as e:
-        logger.error(f"Erro ao registrar dispositivo BLE: {e}")
-
-def processar_status_dispositivo_ble(data):
-    """Processa status do dispositivo BLE"""
-    device_id = data.get("device_id")
-    status = data.get("status", "online")
-    events_count = data.get("events_count", 0)
-    
-    try:
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE pico_devices 
-            SET status = ?, events_count = ?, last_heartbeat = ?
-            WHERE device_id = ?
-        ''', (status, events_count, datetime.now().isoformat(), device_id))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"Status BLE atualizado: {device_id} - {status}")
-        
-    except Exception as e:
-        logger.error(f"Erro ao atualizar status BLE: {e}")
-
-def processar_sync_completo_ble(data):
-    """Processa confirmação de sincronização BLE"""
-    device_id = data.get("device_id")
-    events_count = data.get("events_count", 0)
-    
-    try:
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE pico_devices 
-            SET last_sync = ?, events_count = ?
-            WHERE device_id = ?
-        ''', (datetime.now().isoformat(), events_count, device_id))
-        
-        # Marca eventos como sincronizados
-        hoje = datetime.now().strftime('%Y-%m-%d')
-        cursor.execute('''
-            UPDATE eventos 
-            SET sincronizado = 1 
-            WHERE data = ? AND sincronizado = 0
-        ''', (hoje,))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"Sincronização BLE completa: {device_id} ({events_count} eventos)")
-        
-    except Exception as e:
-        logger.error(f"Erro ao processar sync BLE: {e}")
-
-def processar_evento_concluido(data):
-    """Remove evento concluído"""
-    event_id = data.get("event_id")
-    
-    if event_id:
-        try:
-            conn = sqlite3.connect('database.db')
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM eventos WHERE id = ?", (event_id,))
-            rows_affected = cursor.rowcount
-            conn.commit()
-            conn.close()
-            
-            if rows_affected > 0:
-                logger.info(f"Evento {event_id} concluído e removido")
-                
-        except Exception as e:
-            logger.error(f"Erro ao processar evento concluído: {e}")
-
-def atualizar_heartbeat_dispositivo(device_id):
-    """Atualiza último heartbeat"""
-    try:
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE pico_devices 
-            SET last_heartbeat = ?
-            WHERE device_id = ?
-        ''', (datetime.now().isoformat(), device_id))
-        conn.commit()
-        conn.close()
-    except:
-        pass
-
-# ===== THREAD BLE =====
-def run_ble_loop():
-    """Roda loop BLE em thread separada"""
-    global ble_loop, ble_server_instance
-    
-    ble_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(ble_loop)
-    
-    async def main_ble():
-        if BLE_AVAILABLE:
-            ble_server_instance = BLEServer()
-            await ble_server_instance.start_server()
-            
-            # Mantém servidor rodando
-            while True:
-                await asyncio.sleep(1)
-        else:
-            logger.error("BLE não disponível")
-    
-    try:
-        ble_loop.run_until_complete(main_ble())
-    except Exception as e:
-        logger.error(f"Erro no loop BLE: {e}")
-
-def iniciar_comunicacao_ble():
-    """Inicia sistema BLE"""
-    global ble_thread
-    
-    if not BLE_AVAILABLE:
-        logger.error("Sistema BLE não disponível - bleak não instalado")
-        return
-    
-    ble_thread = threading.Thread(target=run_ble_loop, daemon=True)
-    ble_thread.start()
-    logger.info("Sistema BLE iniciado")
-
-def descobrir_dispositivos_ble():
-    """Descobre dispositivos BLE"""
+# FUNÇÕES BLE PUSH
+async def scan_magic_mirrors():
+    """Escaneia Magic Mirrors"""
     global discovered_devices, scanning
     
     if not BLE_AVAILABLE:
-        logger.error("BLE não disponível")
         return []
-    
-    if scanning:
-        return discovered_devices
     
     scanning = True
     discovered_devices = []
     
     try:
-        # Executa scan em loop próprio
-        def run_scan():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(scan_ble_devices())
-            loop.close()
+        logger.info("Escaneando Magic Mirrors...")
+        devices = await BleakScanner.discover(timeout=12.0)
         
-        scan_thread = threading.Thread(target=run_scan, daemon=True)
-        scan_thread.start()
-        scan_thread.join(timeout=15)
+        for device in devices:
+            name = device.name or ""
+            
+            # Log todos os dispositivos para debug
+            if name:
+                logger.debug(f"Encontrado: '{name}' ({device.address})")
+            
+            # Filtra Magic Mirror
+            if "MagicMirror" in name or "Magic" in name:
+                discovered_devices.append({
+                    'address': device.address,
+                    'name': name,
+                    'rssi': getattr(device, 'rssi', -50),
+                    'type': 'BLE-Push'
+                })
+                logger.info(f"*** MAGIC MIRROR ENCONTRADO: {name} ({device.address}) ***")
+        
+        logger.info(f"Scan concluído - {len(discovered_devices)} Magic Mirrors encontrados")
         
     except Exception as e:
-        logger.error(f"Erro na descoberta BLE: {e}")
+        logger.error(f"Erro no scan: {e}")
     finally:
         scanning = False
     
     return discovered_devices
 
-# ===== INICIALIZAÇÃO =====
-init_db()
-iniciar_comunicacao_ble()
+async def connect_and_push(address, name):
+    """Conecta ao Magic Mirror e configura push notifications"""
+    global ble_client, ble_connected, ble_device_info, response_buffer
+    
+    try:
+        logger.info(f"Conectando a {name} ({address})")
+        
+        # Desconecta anterior
+        if ble_client:
+            try:
+                await ble_client.disconnect()
+            except:
+                pass
+        
+        # Nova conexão
+        ble_client = BleakClient(address)
+        await ble_client.connect(timeout=30)
+        
+        if ble_client.is_connected:
+            ble_connected = True
+            ble_device_info = {'address': address, 'name': name}
+            response_buffer = ""
+            
+            logger.info(f"✅ CONECTADO A {name} - PUSH ATIVO")
+            
+            # Registra dispositivo
+            register_device(address, name)
+            
+            # Configura notificações de resposta
+            await setup_response_notifications()
+            
+            # Envia ping inicial
+            await push_message({"action": "ping"})
+            
+            # Sincroniza eventos de hoje
+            await push_today_events()
+            
+            return True
+        else:
+            logger.error(f"❌ Falha na conexão com {name}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Erro ao conectar: {e}")
+        ble_connected = False
+        return False
 
-# ===== ROTAS HTTP =====
+async def setup_response_notifications():
+    """Configura recebimento de respostas do Pico"""
+    try:
+        await ble_client.start_notify(RESPONSE_CHAR_UUID, handle_response_notification)
+        logger.info("Notificações de resposta configuradas")
+    except Exception as e:
+        logger.error(f"Erro nas notificações: {e}")
+
+async def handle_response_notification(sender, data):
+    """Processa respostas do Pico"""
+    global response_buffer
+    
+    try:
+        chunk = data.decode('utf-8')
+        response_buffer += chunk
+        
+        # Processa respostas completas
+        while '\n' in response_buffer:
+            line, response_buffer = response_buffer.split('\n', 1)
+            if line.strip():
+                await process_pico_response(line.strip())
+                
+    except Exception as e:
+        logger.error(f"Erro na resposta: {e}")
+
+async def process_pico_response(response_str):
+    """Processa resposta JSON do Pico"""
+    try:
+        response = json.loads(response_str)
+        action = response.get("action", "")
+        
+        logger.info(f"Resposta do Pico: {action}")
+        
+        if action == "sync_complete":
+            events_count = response.get("data", 0)
+            logger.info(f"Sincronização confirmada: {events_count} eventos")
+            mark_events_synced()
+            
+        elif action == "event_added":
+            event_id = response.get("data")
+            logger.info(f"Evento adicionado confirmado: ID {event_id}")
+            mark_event_synced(event_id)
+            
+        elif action == "event_removed":
+            event_id = response.get("data")
+            logger.info(f"Evento removido confirmado: ID {event_id}")
+            
+        elif action == "all_events_removed":
+            logger.info("Limpeza de eventos confirmada")
+            
+        elif action == "pong":
+            logger.info("Pong recebido - conexão ativa")
+            
+    except Exception as e:
+        logger.error(f"Erro ao processar resposta: {e}")
+
+async def push_message(data):
+    """Envia mensagem via push notification para o Pico"""
+    if not ble_client or not ble_client.is_connected:
+        logger.warning("Tentativa de push sem conexão")
+        return False
+    
+    try:
+        message = json.dumps(data) + "\n"
+        
+        # Envia em chunks de 20 bytes via característica de eventos
+        for i in range(0, len(message), 20):
+            chunk = message[i:i+20]
+            await ble_client.write_gatt_char(EVENTS_CHAR_UUID, chunk.encode('utf-8'))
+            await asyncio.sleep(0.01)  # Delay pequeno entre chunks
+        
+        logger.debug(f"PUSH enviado: {data.get('action', 'unknown')}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Erro no PUSH: {e}")
+        return False
+
+async def push_today_events():
+    """Push dos eventos de hoje para o Pico"""
+    try:
+        hoje = datetime.now().strftime('%Y-%m-%d')
+        
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nome, hora, data FROM eventos WHERE data = ? ORDER BY hora", (hoje,))
+        eventos = cursor.fetchall()
+        conn.close()
+        
+        events_list = [
+            {"id": eid, "nome": nome, "hora": hora, "data": data}
+            for eid, nome, hora, data in eventos
+        ]
+        
+        push_data = {
+            "action": "sync_events",
+            "events": events_list,
+            "filter_date": hoje,
+            "sync_time": datetime.now().isoformat()
+        }
+        
+        success = await push_message(push_data)
+        
+        if success:
+            logger.info(f"PUSH enviado: {len(events_list)} eventos de hoje")
+        else:
+            logger.error("Falha no PUSH de eventos")
+        
+        return success
+        
+    except Exception as e:
+        logger.error(f"Erro no push de eventos: {e}")
+        return False
+
+def register_device(address, name):
+    """Registra dispositivo no banco"""
+    try:
+        device_id = address.replace(':', '').replace('-', '')
+        
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO pico_devices 
+            (device_id, name, ble_address, status, last_heartbeat) 
+            VALUES (?, ?, ?, ?, ?)
+        ''', (device_id, name, address, 'online', datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Dispositivo registrado: {name}")
+        
+    except Exception as e:
+        logger.error(f"Erro ao registrar: {e}")
+
+def mark_events_synced():
+    """Marca eventos de hoje como sincronizados"""
+    try:
+        hoje = datetime.now().strftime('%Y-%m-%d')
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("UPDATE eventos SET sincronizado = 1 WHERE data = ?", (hoje,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Erro ao marcar sync: {e}")
+
+def mark_event_synced(event_id):
+    """Marca evento específico como sincronizado"""
+    try:
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("UPDATE eventos SET sincronizado = 1 WHERE id = ?", (event_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Erro ao marcar evento sync: {e}")
+
+# WRAPPERS SÍNCRONOS
+def run_async_scan():
+    """Wrapper síncrono para scan"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(scan_magic_mirrors())
+        loop.close()
+        return result
+    except Exception as e:
+        logger.error(f"Erro no wrapper scan: {e}")
+        return []
+
+def run_async_connect(address, name):
+    """Wrapper síncrono para conexão"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(connect_and_push(address, name))
+        loop.close()
+        return result
+    except Exception as e:
+        logger.error(f"Erro no wrapper connect: {e}")
+        return False
+
+def run_async_push(data):
+    """Wrapper síncrono para push"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(push_message(data))
+        loop.close()
+        return result
+    except Exception as e:
+        logger.error(f"Erro no wrapper push: {e}")
+        return False
+
+# INICIALIZAÇÃO
+init_db()
+
+# ROTAS HTTP
 @app.route('/')
-def serve_index():
-    """Serve página principal"""
+def home():
+    """Página principal"""
     for path in ['.', 'templates', 'static']:
         index_path = os.path.join(path, 'index.html')
         if os.path.exists(index_path):
             return send_from_directory(path, 'index.html')
     
-    return f'''
-    <html>
-    <head><title>Magic Mirror BLE</title></head>
-    <body>
-    <h1>Magic Mirror BLE Server</h1>
-    <p>Servidor BLE rodando</p>
-    <p>BLE Disponível: {BLE_AVAILABLE}</p>
-    <p>Conectado: {ble_connected}</p>
-    </body>
-    </html>
+    return '''
+    <h1>Magic Mirror - BLE Push Server</h1>
+    <p>Status: ''' + ("Conectado" if ble_connected else "Desconectado") + '''</p>
+    <p>Dispositivo: ''' + (ble_device_info['name'] if ble_device_info else "Nenhum") + '''</p>
     '''
 
-# EVENTOS
 @app.route('/api/eventos', methods=['POST'])
-def adicionar_evento():
-    """Adiciona novo evento"""
-    data = request.get_json()
+def add_event():
+    """Adiciona evento e faz push para Pico"""
+    data = request.json
     nome = data.get('nome')
     data_evento = data.get('data')
     hora_evento = data.get('hora')
     
     if not all([nome, data_evento, hora_evento]):
-        return jsonify({"erro": "Campos obrigatórios faltando"}), 400
-
+        return jsonify({"erro": "Campos obrigatórios"}), 400
+    
     try:
+        # Adiciona no banco
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO eventos (nome, data, hora, criado_em, sincronizado) VALUES (?, ?, ?, ?, ?)",
             (nome, data_evento, hora_evento, datetime.now().isoformat(), 0)
         )
-        evento_id = cursor.lastrowid
+        event_id = cursor.lastrowid
         conn.commit()
         conn.close()
-
-        logger.info(f"Evento criado: {nome} em {data_evento} às {hora_evento}")
-
-        # Envia para dispositivo se for hoje e conectado
+        
+        logger.info(f"Evento criado: {nome} ({data_evento} {hora_evento})")
+        
+        # Push para Pico se for evento de hoje e estiver conectado
         hoje = datetime.now().strftime('%Y-%m-%d')
-        if data_evento == hoje and ble_connected and ble_server_instance:
-            payload = {
-                "action": "add_event",
-                "event": {
-                    "id": evento_id,
-                    "nome": nome,
-                    "hora": hora_evento,
-                    "data": data_evento
-                },
-                "timestamp": datetime.now().isoformat()
-            }
+        if data_evento == hoje and ble_connected:
+            def push_event():
+                push_data = {
+                    "action": "add_event",
+                    "event": {
+                        "id": event_id,
+                        "nome": nome,
+                        "hora": hora_evento,
+                        "data": data_evento
+                    }
+                }
+                
+                success = run_async_push(push_data)
+                if success:
+                    logger.info(f"PUSH enviado: evento {event_id}")
+                else:
+                    logger.error(f"Falha no PUSH: evento {event_id}")
             
-            # Envia assincronamente
-            def send_async():
-                if ble_loop:
-                    asyncio.run_coroutine_threadsafe(
-                        ble_server_instance.send_data(payload), 
-                        ble_loop
-                    )
-            
-            threading.Thread(target=send_async, daemon=True).start()
-
-        return jsonify({'mensagem': 'Evento cadastrado!', 'id': evento_id}), 201
-    
+            threading.Thread(target=push_event, daemon=True).start()
+        
+        return jsonify({'mensagem': 'Evento criado!', 'id': event_id}), 201
+        
     except Exception as e:
-        logger.error(f"Erro ao adicionar evento: {e}")
+        logger.error(f"Erro ao criar evento: {e}")
         return jsonify({"erro": "Erro interno"}), 500
 
-@app.route('/api/eventos', methods=['GET'])
-def listar_eventos():
-    """Lista todos os eventos"""
-    try:
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, nome, data, hora, sincronizado FROM eventos ORDER BY data, hora")
-        eventos = cursor.fetchall()
-        conn.close()
-
-        return jsonify([
-            {
-                'id': id, 'nome': nome, 'data': data, 
-                'hora': hora, 'sincronizado': bool(sincronizado)
-            }
-            for id, nome, data, hora, sincronizado in eventos
-        ])
-    
-    except Exception as e:
-        logger.error(f"Erro ao listar eventos: {e}")
-        return jsonify({"erro": "Erro interno"}), 500
-
-@app.route('/api/eventos-hoje', methods=['GET'])
-def eventos_hoje():
+@app.route('/api/eventos-hoje')
+def get_today_events():
     """Lista eventos de hoje"""
     hoje = datetime.now().strftime('%Y-%m-%d')
     
     try:
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, nome, hora, sincronizado FROM eventos WHERE data = ? ORDER BY hora", 
-            (hoje,)
-        )
+        cursor.execute("SELECT id, nome, hora, sincronizado FROM eventos WHERE data = ? ORDER BY hora", (hoje,))
         eventos = cursor.fetchall()
         conn.close()
-
+        
         return jsonify([
-            {'id': id, 'nome': nome, 'hora': hora, 'sincronizado': bool(sincronizado)}
-            for id, nome, hora, sincronizado in eventos
+            {'id': id, 'nome': nome, 'hora': hora, 'sincronizado': bool(sync)}
+            for id, nome, hora, sync in eventos
         ])
-    
+        
     except Exception as e:
-        logger.error(f"Erro ao listar eventos de hoje: {e}")
+        logger.error(f"Erro ao listar eventos: {e}")
         return jsonify({"erro": "Erro interno"}), 500
 
-@app.route('/api/eventos', methods=['DELETE'])
-def deletar_todos_eventos():
-    """Deleta todos os eventos"""
+@app.route('/api/eventos/<int:event_id>', methods=['DELETE'])
+def delete_event(event_id):
+    """Deleta evento e faz push para Pico"""
     try:
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM eventos")
-        rows_affected = cursor.rowcount
+        cursor.execute("DELETE FROM eventos WHERE id = ?", (event_id,))
+        rows = cursor.rowcount
         conn.commit()
         conn.close()
-
-        if rows_affected > 0:
-            # Notifica dispositivo BLE
-            if ble_connected and ble_server_instance:
-                payload = {
-                    "action": "remove_all_events",
-                    "timestamp": datetime.now().isoformat()
-                }
-                
-                def send_async():
-                    if ble_loop:
-                        asyncio.run_coroutine_threadsafe(
-                            ble_server_instance.send_data(payload), 
-                            ble_loop
-                        )
-                
-                threading.Thread(target=send_async, daemon=True).start()
+        
+        if rows > 0:
+            logger.info(f"Evento {event_id} deletado")
             
-            return jsonify({'mensagem': f'{rows_affected} eventos deletados'}), 200
-        else:
-            return jsonify({"erro": "Nenhum evento para deletar"}), 404
-    
-    except Exception as e:
-        logger.error(f"Erro ao deletar eventos: {e}")
-        return jsonify({"erro": "Erro interno"}), 500
-
-@app.route('/api/eventos/<int:evento_id>', methods=['DELETE'])
-def deletar_evento(evento_id):
-    """Deleta um evento específico"""
-    try:
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
-        rows_affected = cursor.rowcount
-        conn.commit()
-        conn.close()
-
-        if rows_affected > 0:
-            # Notifica dispositivo BLE
-            if ble_connected and ble_server_instance:
-                payload = {
-                    "action": "remove_event",
-                    "event_id": evento_id,
-                    "timestamp": datetime.now().isoformat()
-                }
+            # Push remoção para Pico
+            if ble_connected:
+                def push_remove():
+                    push_data = {"action": "remove_event", "event_id": event_id}
+                    run_async_push(push_data)
                 
-                def send_async():
-                    if ble_loop:
-                        asyncio.run_coroutine_threadsafe(
-                            ble_server_instance.send_data(payload), 
-                            ble_loop
-                        )
-                
-                threading.Thread(target=send_async, daemon=True).start()
+                threading.Thread(target=push_remove, daemon=True).start()
             
             return jsonify({'mensagem': 'Evento deletado'}), 200
         else:
             return jsonify({"erro": "Evento não encontrado"}), 404
-    
+            
     except Exception as e:
         logger.error(f"Erro ao deletar evento: {e}")
         return jsonify({"erro": "Erro interno"}), 500
 
-# SISTEMA
-@app.route('/api/sistema/info', methods=['GET'])
-def info_sistema():
+@app.route('/api/eventos', methods=['DELETE'])
+def delete_all_events():
+    """Deleta todos os eventos e faz push para Pico"""
+    try:
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM eventos")
+        rows = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        if rows > 0:
+            logger.info(f"{rows} eventos deletados")
+            
+            # Push limpeza para Pico
+            if ble_connected:
+                def push_clear():
+                    push_data = {"action": "remove_all_events"}
+                    run_async_push(push_data)
+                
+                threading.Thread(target=push_clear, daemon=True).start()
+            
+            return jsonify({'mensagem': f'{rows} eventos deletados'}), 200
+        else:
+            return jsonify({'mensagem': 'Nenhum evento para deletar'}), 200
+            
+    except Exception as e:
+        logger.error(f"Erro ao deletar eventos: {e}")
+        return jsonify({"erro": "Erro interno"}), 500
+
+@app.route('/api/sistema/info')
+def system_info():
     """Informações do sistema"""
     hoje = datetime.now().strftime('%Y-%m-%d')
     
@@ -765,187 +520,169 @@ def info_sistema():
         cursor = conn.cursor()
         
         cursor.execute("SELECT COUNT(*) FROM eventos WHERE data = ?", (hoje,))
-        eventos_hoje_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM pico_devices")
-        total_dispositivos = cursor.fetchone()[0]
+        eventos_hoje = cursor.fetchone()[0]
         
         cursor.execute("SELECT COUNT(*) FROM eventos")
         total_eventos = cursor.fetchone()[0]
         
+        cursor.execute("SELECT COUNT(*) FROM pico_devices")
+        total_devices = cursor.fetchone()[0]
+        
         conn.close()
         
         return jsonify({
-            'eventos_hoje': eventos_hoje_count,
+            'eventos_hoje': eventos_hoje,
             'total_eventos': total_eventos,
-            'total_dispositivos': total_dispositivos,
-            'protocolo': 'Bluetooth Low Energy (BLE)',
+            'total_dispositivos': total_devices,
             'bluetooth_conectado': ble_connected,
             'bluetooth_disponivel': BLE_AVAILABLE,
-            'dispositivo_conectado': ble_client_device['name'] if ble_client_device else None,
-            'versao': '2.0-BLE',
-            'modo': 'OFFLINE',
+            'dispositivo_conectado': ble_device_info['name'] if ble_device_info else None,
+            'protocolo': 'BLE Push Notifications',
+            'versao': '2.0-BLE-Push',
+            'modo': 'PUSH',
             'data_atual': hoje
         }), 200
-    
+        
     except Exception as e:
-        logger.error(f"Erro ao obter info do sistema: {e}")
+        logger.error(f"Erro info sistema: {e}")
         return jsonify({"erro": "Erro interno"}), 500
 
-@app.route('/api/sincronizar', methods=['POST'])
-def sincronizar_manual():
-    """Sincronização manual"""
-    try:
-        if not ble_connected or not ble_server_instance:
-            return jsonify({"erro": "Nenhum dispositivo BLE conectado"}), 400
-        
-        device_id = ble_client_device['address'].replace(':', '').replace('-', '') if ble_client_device else 'unknown'
-        
-        # Sincroniza assincronamente
-        def sync_async():
-            if ble_loop:
-                asyncio.run_coroutine_threadsafe(
-                    ble_server_instance.sincronizar_eventos(device_id), 
-                    ble_loop
-                )
-        
-        threading.Thread(target=sync_async, daemon=True).start()
-        
-        return jsonify({
-            'mensagem': f'Sincronização BLE iniciada para {ble_client_device.get("name", "dispositivo")}',
-            'dispositivos_sincronizados': 1
-        }), 200
-    
-    except Exception as e:
-        logger.error(f"Erro na sincronização: {e}")
-        return jsonify({"erro": "Erro interno"}), 500
-
-@app.route('/api/dispositivos', methods=['GET'])
-def listar_dispositivos():
-    """Lista dispositivos registrados"""
-    try:
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT device_id, name, ble_address, status, last_sync, events_count, 
-                   firmware_version, last_heartbeat, created_at
-            FROM pico_devices 
-            ORDER BY created_at DESC
-        """)
-        dispositivos = cursor.fetchall()
-        conn.close()
-
-        dispositivos_formatados = []
-        for row in dispositivos:
-            device_id, name, ble_addr, status, last_sync, events_count, fw_ver, last_hb, created = row
-            
-            # Verifica se está conectado atualmente
-            current_status = 'online' if (
-                ble_connected and 
-                ble_client_device and 
-                ble_client_device['address'] == ble_addr
-            ) else 'offline'
-            
-            dispositivos_formatados.append({
-                'device_id': device_id,
-                'name': name,
-                'ble_address': ble_addr,
-                'status': current_status,
-                'last_sync': last_sync,
-                'events_count': events_count or 0,
-                'firmware_version': fw_ver or 'Unknown',
-                'last_heartbeat': last_hb,
-                'created_at': created,
-                'connection_type': 'Bluetooth Low Energy (BLE)'
-            })
-
-        return jsonify(dispositivos_formatados)
-    
-    except Exception as e:
-        logger.error(f"Erro ao listar dispositivos: {e}")
-        return jsonify({"erro": "Erro interno"}), 500
-
-# BLE ESPECÍFICO
 @app.route('/api/bluetooth/scan', methods=['POST'])
-def iniciar_scan_ble():
-    """Inicia descoberta de dispositivos BLE"""
+def start_scan():
+    """Inicia scan BLE"""
     if not BLE_AVAILABLE:
         return jsonify({"erro": "BLE não disponível"}), 400
     
-    try:
-        # Inicia scan em thread separada
-        scan_thread = threading.Thread(target=descobrir_dispositivos_ble, daemon=True)
-        scan_thread.start()
-        
-        return jsonify({'mensagem': 'Descoberta BLE iniciada'}), 200
+    def scan_thread():
+        run_async_scan()
     
-    except Exception as e:
-        logger.error(f"Erro ao iniciar scan BLE: {e}")
-        return jsonify({"erro": "Erro ao iniciar descoberta BLE"}), 500
+    threading.Thread(target=scan_thread, daemon=True).start()
+    return jsonify({'mensagem': 'Scan BLE iniciado'}), 200
 
-@app.route('/api/bluetooth/scan/stop', methods=['POST'])
-def parar_scan_ble():
-    """Para descoberta BLE"""
-    global scanning
-    scanning = False
-    return jsonify({'mensagem': 'Descoberta BLE interrompida'}), 200
-
-@app.route('/api/bluetooth/devices', methods=['GET'])
-def listar_dispositivos_descobertos():
-    """Lista dispositivos BLE descobertos"""
+@app.route('/api/bluetooth/devices')
+def list_devices():
+    """Lista dispositivos descobertos"""
     return jsonify(discovered_devices)
 
-@app.route('/api/bluetooth/status', methods=['GET'])
-def status_ble():
+@app.route('/api/bluetooth/connect', methods=['POST'])
+def connect_device():
+    """Conecta ao Magic Mirror"""
+    if not BLE_AVAILABLE:
+        return jsonify({"erro": "BLE não disponível"}), 400
+    
+    data = request.json
+    address = data.get('address')
+    name = data.get('name')
+    
+    if not address:
+        return jsonify({"erro": "Endereço obrigatório"}), 400
+    
+    def connect_thread():
+        success = run_async_connect(address, name)
+        if success:
+            logger.info(f"Conexão PUSH estabelecida com {name}")
+        else:
+            logger.error(f"Falha na conexão PUSH com {name}")
+    
+    threading.Thread(target=connect_thread, daemon=True).start()
+    return jsonify({'mensagem': f'Conectando via PUSH a {name}...'}), 200
+
+@app.route('/api/bluetooth/status')
+def bluetooth_status():
     """Status da conexão BLE"""
     return jsonify({
         'connected': ble_connected,
-        'device': ble_client_device,
+        'device': ble_device_info,
         'scanning': scanning,
-        'server_running': ble_server_instance is not None,
-        'ble_available': BLE_AVAILABLE
+        'ble_available': BLE_AVAILABLE,
+        'push_enabled': ble_connected,
+        'connection_type': 'BLE Push Notifications'
     }), 200
 
 @app.route('/api/bluetooth/disconnect', methods=['POST'])
-def desconectar_ble():
-    """Desconecta dispositivo BLE atual"""
-    global ble_connected, ble_client_device
+def disconnect_device():
+    """Desconecta dispositivo BLE"""
+    global ble_client, ble_connected, ble_device_info
     
     try:
-        device_name = ble_client_device.get('name', 'dispositivo') if ble_client_device else 'dispositivo'
-        
-        # Força desconexão
-        if ble_server_instance and ble_server_instance.connected_device:
-            def disconnect_async():
-                if ble_loop:
-                    # BLE desconecta automaticamente quando cliente para
+        if ble_client:
+            def disconnect_thread():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(ble_client.disconnect())
+                    loop.close()
+                except:
                     pass
             
-            threading.Thread(target=disconnect_async, daemon=True).start()
+            threading.Thread(target=disconnect_thread, daemon=True).start()
+        
+        device_name = ble_device_info['name'] if ble_device_info else 'dispositivo'
         
         ble_connected = False
-        ble_client_device = None
+        ble_device_info = None
         
         return jsonify({'mensagem': f'Desconectado de {device_name}'}), 200
-    
+        
     except Exception as e:
-        logger.error(f"Erro ao desconectar BLE: {e}")
-        return jsonify({"erro": "Erro na desconexão BLE"}), 500
+        logger.error(f"Erro ao desconectar: {e}")
+        return jsonify({"erro": "Erro na desconexão"}), 500
 
-# MAIN
+@app.route('/api/sincronizar', methods=['POST'])
+def manual_sync():
+    """Sincronização manual via push"""
+    if not ble_connected:
+        return jsonify({"erro": "Dispositivo não conectado"}), 400
+    
+    def sync_thread():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(push_today_events())
+            loop.close()
+        except Exception as e:
+            logger.error(f"Erro sync manual: {e}")
+    
+    threading.Thread(target=sync_thread, daemon=True).start()
+    
+    return jsonify({
+        'mensagem': f'Sincronização PUSH iniciada para {ble_device_info.get("name", "dispositivo")}',
+        'dispositivos_sincronizados': 1
+    }), 200
+
+@app.route('/api/bluetooth/push/test', methods=['POST'])
+def test_push():
+    """Testa push notification"""
+    if not ble_connected:
+        return jsonify({"erro": "Dispositivo não conectado"}), 400
+    
+    def test_thread():
+        test_data = {
+            "action": "ping",
+            "test": True,
+            "timestamp": time.time()
+        }
+        success = run_async_push(test_data)
+        logger.info(f"Teste de PUSH: {'Sucesso' if success else 'Falha'}")
+    
+    threading.Thread(target=test_thread, daemon=True).start()
+    return jsonify({'mensagem': 'Teste de PUSH enviado'}), 200
+
 if __name__ == '__main__':
     print("=" * 60)
-    print("MAGIC MIRROR - SERVIDOR BLE")
+    print("MAGIC MIRROR - SERVIDOR BLE PUSH")
     print("=" * 60)
     print(f"BLE disponível: {BLE_AVAILABLE}")
     if BLE_AVAILABLE:
-        print(f"Serviço: {BLE_SERVER_NAME}")
-        print(f"UUID Serviço: {BLE_SERVICE_UUID}")
-        print(f"UUID Característica: {BLE_CHAR_UUID}")
+        print("Modo: Cliente BLE com Push Notifications")
+        print("Funcionamento: Servidor conecta ao Pico e empurra dados")
+        print(f"Serviço UUID: {SERVICE_UUID}")
+        print(f"Eventos UUID: {EVENTS_CHAR_UUID}")
+        print(f"Resposta UUID: {RESPONSE_CHAR_UUID}")
     else:
-        print("ATENÇÃO: Instale bleak com: pip install bleak")
+        print("ERRO: Instale bleak com: pip install bleak")
     print("=" * 60)
-    print("Servidor iniciando em http://localhost:5000")
+    print("Servidor HTTP: http://localhost:5000")
     print("=" * 60)
     
     app.run(host='0.0.0.0', port=5000, debug=False)
