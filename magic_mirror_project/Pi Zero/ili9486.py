@@ -1,332 +1,233 @@
-# Copyright (c) 2016 myway work
-# Author: Liqun Hu
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-import numbers
-import time
-import numpy as np
+# ILI9486 nano-gui driver for ili9486 displays
 
-from PIL import Image, ImageDraw
+# Copyright (c) Peter Hinch 2022-2024
+# Released under the MIT license see LICENSE
 
-import Adafruit_GPIO as GPIO
-import Adafruit_GPIO.SPI as SPI
+# Much help provided by @brave-ulysses in this thread
+# https://github.com/micropython/micropython/discussions/10404 for the special handling
+# required by the Waveshare Pi HAT.
 
+# This driver configures the chip in portrait mode with rotation performed in the driver.
+# This is done to enable default values to be used for the Column Address Set and Page
+# Address Set registers. This avoids having to use commands with multi-byte data values,
+# which would necessitate special code for the Waveshare Pi HAT (see DRIVERS.md).
 
-# Constants for interacting with display registers.
-ILI9486_TFTWIDTH    = 320
-ILI9486_TFTHEIGHT   = 480
+from time import sleep_ms
+import gc
+import framebuf
+import asyncio
+from drivers.boolpalette import BoolPalette
 
-ILI9486_NOP         = 0x00
-ILI9486_SWRESET     = 0x01
-ILI9486_RDDID       = 0x04
-ILI9486_RDDST       = 0x09
-
-ILI9486_SLPIN       = 0x10
-ILI9486_SLPOUT      = 0x11
-ILI9486_PTLON       = 0x12
-ILI9486_NORON       = 0x13
-
-ILI9486_RDMODE      = 0x0A
-ILI9486_RDMADCTL    = 0x0B
-ILI9486_RDPIXFMT    = 0x0C
-ILI9486_RDIMGFMT    = 0x0A
-ILI9486_RDSELFDIAG  = 0x0F
-
-ILI9486_INVOFF      = 0x20
-ILI9486_INVON       = 0x21
-ILI9486_GAMMASET    = 0x26
-ILI9486_DISPOFF     = 0x28
-ILI9486_DISPON      = 0x29
-
-ILI9486_CASET       = 0x2A
-ILI9486_PASET       = 0x2B
-ILI9486_RAMWR       = 0x2C
-ILI9486_RAMRD       = 0x2E
-
-ILI9486_PTLAR       = 0x30
-ILI9486_MADCTL      = 0x36
-ILI9486_PIXFMT      = 0x3A
-
-ILI9486_FRMCTR1     = 0xB1
-ILI9486_FRMCTR2     = 0xB2
-ILI9486_FRMCTR3     = 0xB3
-ILI9486_INVCTR      = 0xB4
-ILI9486_DFUNCTR     = 0xB6
-
-ILI9486_PWCTR1      = 0xC0
-ILI9486_PWCTR2      = 0xC1
-ILI9486_PWCTR3      = 0xC2
-ILI9486_PWCTR4      = 0xC3
-ILI9486_PWCTR5      = 0xC4
-ILI9486_VMCTR1      = 0xC5
-ILI9486_VMCTR2      = 0xC7
-
-ILI9486_RDID1       = 0xDA
-ILI9486_RDID2       = 0xDB
-ILI9486_RDID3       = 0xDC
-ILI9486_RDID4       = 0xDD
-
-ILI9486_GMCTRP1     = 0xE0
-ILI9486_GMCTRN1     = 0xE1
-
-ILI9486_PWCTR6      = 0xFC
-
-ILI9486_BLACK       = 0x0000
-ILI9486_BLUE        = 0x001F
-ILI9486_RED         = 0xF800
-ILI9486_GREEN       = 0x07E0
-ILI9486_CYAN        = 0x07FF
-ILI9486_MAGENTA     = 0xF81F
-ILI9486_YELLOW      = 0xFFE0  
-ILI9486_WHITE       = 0xFFFF
+# Portrait mode
+@micropython.viper
+def _lcopy(dest: ptr16, source: ptr8, lut: ptr16, length: int, gscale: bool):
+    # rgb565 - 16bit/pixel
+    n: int = 0
+    x: int = 0
+    while length:
+        c = source[x]
+        p = c >> 4  # current pixel
+        q = c & 0x0F  # next pixel
+        if gscale:
+            dest[n] = p >> 1 | p << 4 | p << 9 | ((p & 0x01) << 15)
+            n += 1
+            dest[n] = q >> 1 | q << 4 | q << 9 | ((q & 0x01) << 15)
+        else:
+            dest[n] = lut[p]  # current pixel
+            n += 1
+            dest[n] = lut[q]  # next pixel
+        n += 1
+        x += 1
+        length -= 1
 
 
-def color565(r, g, b):
-    """Convert red, green, blue components to a 16-bit 565 RGB value. Components
-    should be values 0 to 255.
-    """
-    return ((r & 0xF0) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-
-def image_to_data(image):
-    """Generator function to convert a PIL image to 16-bit 565 RGB bytes."""
-    #NumPy is much faster at doing this. NumPy code provided by:
-    #Keith (https://www.blogger.com/profile/02555547344016007163)
-    pb = np.array(image.convert('RGB')).astype('uint16')
-#    color = ((pb[:,:,0] & 0xF8) << 8) | ((pb[:,:,1] & 0xFC) << 3) | (pb[:,:,2] >> 3)
-#    return np.dstack(((color >> 8) & 0xFF, color & 0xFF)).flatten().tolist()
-    return np.dstack((pb[:,:,0] & 0xFC, pb[:,:,1] & 0xFC, pb[:,:,2] & 0xFC)).flatten().tolist()
-#    pixels = image.convert('RGB').load()  
-#    width, height = image.size  
-#    for y in range(height):  
-#        for x in range(width):  
-#            r,g,b = pixels[(x,y)]  
-##            color = color565(r, g, b)  
-#            #yield (color >> 8) & 0xFF  
-#            #yield color & 0xFF  
-#            yield r 
-#            yield g  
-#            yield b 
+# FB is in landscape mode, hence issue a column at a time to portrait mode hardware.
+@micropython.viper
+def _lscopy(dest: ptr16, source: ptr8, lut: ptr16, ch: int, gscale: bool):
+    col = ch & 0x1FF  # Unpack (viper old 4 parameter limit)
+    height = (ch >> 9) & 0x1FF
+    wbytes = ch >> 19  # Width in bytes is width // 2
+    # rgb565 - 16bit/pixel
+    n = 0
+    clsb = col & 1
+    idx = col >> 1  # 2 pixels per byte
+    while height:
+        if clsb:
+            c = source[idx] & 0x0F
+        else:
+            c = source[idx] >> 4
+        dest[n] = c >> 1 | c << 4 | c << 9 | ((c & 0x01) << 15) if gscale else lut[c]
+        # dest[n] = lut[c]  # 16 bit transfer of rightmost 4-bit pixel
+        n += 1  # 16 bit
+        idx += wbytes
+        height -= 1
 
 
-class ILI9486(object):
-    """Representation of an ILI9486 TFT LCD."""
+class ILI9486(framebuf.FrameBuffer):
 
-    def __init__(self, dc, spi, rst=None, gpio=None, width=ILI9486_TFTWIDTH,
-        height=ILI9486_TFTHEIGHT):
-        """Create an instance of the display using SPI communication.  Must
-        provide the GPIO pin number for the D/C pin and the SPI driver.  Can
-        optionally provide the GPIO pin number for the reset pin as the rst
-        parameter.
-        """
+    lut = bytearray(32)
+    COLOR_INVERT = 0
+
+    # Convert r, g, b in range 0-255 to a 16 bit colour value
+    # LS byte goes into LUT offset 0, MS byte into offset 1
+    # Same mapping in linebuf so LS byte is shifted out 1st
+    # ILI9486 expects RGB order. 8 bit register writes require padding
+    @classmethod
+    def rgb(cls, r, g, b):
+        return cls.COLOR_INVERT ^ (
+            (r & 0xF8) | (g & 0xE0) >> 5 | (g & 0x1C) << 11 | (b & 0xF8) << 5
+        )
+
+    # Transpose width & height for landscape mode
+    def __init__(
+        self, spi, cs, dc, rst, height=320, width=480, usd=False, mirror=False, init_spi=False
+    ):
+        self._spi = spi
+        self._cs = cs
         self._dc = dc
         self._rst = rst
-        self._spi = spi
-        self._gpio = gpio
+        self.lock_mode = False  # If set, user lock is passed to .do_refresh
+        self.height = height  # Logical dimensions for GUIs
         self.width = width
-        self.height = height
-        if self._gpio is None:
-            self._gpio = GPIO.get_platform_gpio()
-        # Set DC as output.
-        self._gpio.setup(dc, GPIO.OUT)
-        # Setup reset as output (if provided).
-        if rst is not None:
-            self._gpio.setup(rst, GPIO.OUT)
-        # Set SPI to mode 0, MSB first.
-        spi.set_mode(2)
-        spi.set_bit_order(SPI.MSBFIRST)
-        spi.set_clock_hz(64000000)
-        # Create an image buffer.
-        self.buffer = Image.new('RGB', (width, height))
+        self._long = max(height, width)  # Physical dimensions of screen and aspect ratio
+        self._short = min(height, width)
+        self._spi_init = init_spi
+        self._gscale = False  # Interpret buffer as index into color LUT
+        self.mode = framebuf.GS4_HMSB
+        self.palette = BoolPalette(self.mode)
+        gc.collect()
+        buf = bytearray(height * width // 2)
+        self.mvb = memoryview(buf)
+        super().__init__(buf, width, height, self.mode)  # Logical aspect ratio
+        self._linebuf = bytearray(self._short * 2)
 
-    def send(self, data, is_data=True, chunk_size=4096):
-        """Write a byte or array of bytes to the display. Is_data parameter
-        controls if byte should be interpreted as display data (True) or command
-        data (False).  Chunk_size is an optional size of bytes to write in a
-        single SPI transaction, with a default of 4096.
-        """
-        # Set DC low for command, high for data.
-        self._gpio.output(self._dc, is_data)
-        # Convert scalar argument to list so either can be passed as parameter.
-        if isinstance(data, numbers.Number):
-            data = [data & 0xFF]
-        # Write data a chunk at a time.
-        for start in range(0, len(data), chunk_size):
-            end = min(start+chunk_size, len(data))
-            self._spi.write(data[start:end])
+        # Hardware reset
+        self._rst(0)
+        sleep_ms(50)
+        self._rst(1)
+        sleep_ms(50)
+        if self._spi_init:  # A callback was passed
+            self._spi_init(spi)  # Bus may be shared
+        self._lock = asyncio.Lock()
+        # Send initialization commands
 
-    def command(self, data):
-        """Write a byte or array of bytes to the display as command data."""
-        self.send(data, False)
+        self._wcmd(b"\x01")  # SWRESET Software reset
+        sleep_ms(100)
+        self._wcmd(b"\x11")  # sleep out
+        sleep_ms(20)
+        self._wcd(b"\x3a", b"\x55")  # interface pixel format
+        # Normally use defaults. This allows it to work on the Waveshare board with a
+        # shift register. If size is not 320x480 assume no shift register.
+        # Default column address start == 0, end == 0x13F (319)
+        if self._short != 320:  # Not the Waveshare board: no shift register
+            self._wcd(b"\x2a", int.to_bytes(self._short - 1, 4, "big"))
+        # Default page address start == 0 end == 0x1DF (479)
+        if self._long != 480:
+            self._wcd(b"\x2b", int.to_bytes(self._long - 1, 4, "big"))  # SET_PAGE ht
+        #        self._wcd(b"\x36", b"\x48" if usd else b"\x88")  # MADCTL: RGB portrait mode
+        madctl = 0x48 if usd else 0x88
+        if mirror:
+            madctl ^= 0x80
+        self._wcd(b"\x36", madctl.to_bytes(1, "big"))  # MADCTL: RGB portrait mode
+        self._wcmd(b"\x11")  # sleep out
+        self._wcmd(b"\x29")  # display on
 
-    def data(self, data):
-        """Write a byte or array of bytes to the display as display data."""
-        self.send(data, True)
+    # Write a command.
+    def _wcmd(self, command):
+        self._dc(0)
+        self._cs(0)
+        self._spi.write(command)
+        self._cs(1)
 
-    def reset(self):
-        """Reset the display, if reset pin is connected."""
-        if self._rst is not None:
-            self._gpio.set_high(self._rst)
-            time.sleep(0.005)
-            self._gpio.set_low(self._rst)
-            time.sleep(0.02)
-            self._gpio.set_high(self._rst)
-            time.sleep(0.150)
+    # Write a command followed by a data arg.
+    def _wcd(self, command, data):
+        self._dc(0)
+        self._cs(0)
+        self._spi.write(command)
+        self._cs(1)
+        self._dc(1)
+        self._cs(0)
+        self._spi.write(data)
+        self._cs(1)
 
-    def _init(self):
-        # Initialize the display.  Broken out as a separate function so it can
-        # be overridden by other displays in the future.
-        self.command(0xB0)
-        self.data(0x00)
-        self.command(0x11)
-        time.sleep(0.020)
-    
-        self.command(0x3A)
-        self.data(0x66)
+    def greyscale(self, gs=None):
+        if gs is not None:
+            self._gscale = gs
+        return self._gscale
 
-        self.command(0x0C)
-        self.data(0x66)
+    # @micropython.native  # Made almost no difference to timing
+    def show(self):  # Physical display is in portrait mode
+        clut = ILI9486.lut
+        lb = self._linebuf
+        buf = self.mvb
+        cm = self._gscale  # color False, greyscale True
+        if self._spi_init:  # A callback was passed
+            self._spi_init(self._spi)  # Bus may be shared
+        self._wcmd(b"\x2c")  # WRITE_RAM
+        self._dc(1)
+        self._cs(0)
+        if self.width < self.height:  # Portrait 214ms on RP2 120MHz, 30MHz SPI clock
+            wd = self.width // 2
+            ht = self.height
+            for start in range(0, wd * ht, wd):  # For each line
+                _lcopy(lb, buf[start:], clut, wd, cm)  # Copy and map colors
+                self._spi.write(lb)
+        else:  # Landscpe 264ms on RP2 120MHz, 30MHz SPI clock
+            width = self.width
+            wd = width - 1
+            cargs = (self.height << 9) + (width << 18)  # Viper 4-arg limit
+            for col in range(width):  # For each column of landscape display
+                _lscopy(lb, buf, clut, wd - col + cargs, cm)  # Copy and map colors
+                self._spi.write(lb)
+        self._cs(1)
 
-        #self.command(0xB6)
-        #self.data(0x00)
-        #self.data(0x42)
-        #self.data(0x3B)
+    def short_lock(self, v=None):
+        if v is not None:
+            self.lock_mode = v  # If set, user lock is passed to .do_refresh
+        return self.lock_mode
 
-        self.command(0xC2)
-        self.data(0x44)
-
-        self.command(0xC5)
-        self.data(0x00)
-        self.data(0x00)
-        self.data(0x00)
-        self.data(0x00)
-        
-        self.command(0xE0)
-        self.data(0x0F)
-        self.data(0x1F)
-        self.data(0x1C)
-        self.data(0x0C)
-        self.data(0x0F)
-        self.data(0x08)
-        self.data(0x48)
-        self.data(0x98)
-        self.data(0x37)
-        self.data(0x0A)
-        self.data(0x13)
-        self.data(0x04)
-        self.data(0x11)
-        self.data(0x0D)
-        self.data(0x00)
-
-        self.command(0xE1)
-        self.data(0x0F)
-        self.data(0x32)
-        self.data(0x2E)
-        self.data(0x0B)
-        self.data(0x0D)
-        self.data(0x05)
-        self.data(0x47)
-        self.data(0x75)
-        self.data(0x37)
-        self.data(0x06)
-        self.data(0x10)
-        self.data(0x03)
-        self.data(0x24)
-        self.data(0x20)
-        self.data(0x00)
-    
-        self.command(0xE2)
-        self.data(0x0F)
-        self.data(0x32)
-        self.data(0x2E)
-        self.data(0x0B)
-        self.data(0x0D)
-        self.data(0x05)
-        self.data(0x47)
-        self.data(0x75)
-        self.data(0x37)
-        self.data(0x06)
-        self.data(0x10)
-        self.data(0x03)
-        self.data(0x24)
-        self.data(0x20)
-        self.data(0x00)
-            
-        self.command(0x36)
-        self.data(0x88) #change the direct
-
-        self.command(0x11)
-        self.command(0x29)
-
-    def begin(self):
-        """Initialize the display.  Should be called once before other calls that
-        interact with the display are called.
-        """
-        self.reset()
-        self._init()    
-    
-    def set_window(self, x0=0, y0=0, x1=None, y1=None):
-        """Set the pixel address window for proceeding drawing commands. x0 and
-        x1 should define the minimum and maximum x pixel bounds.  y0 and y1 
-        should define the minimum and maximum y pixel bound.  If no parameters 
-        are specified the default will be to update the entire display from 0,0
-        to 239,319.
-        """
-        if x1 is None:
-            x1 = self.width-1
-        if y1 is None:
-            y1 = self.height-1
-        self.command(0x2A)        # Column addr set
-        self.data(x0 >> 8)
-        self.data(x0 & 0xFF)                    # XSTART 
-        self.data(x1 >> 8)
-        self.data(x1 & 0xFF)                    # XEND
-        self.command(0x2B)        # Row addr set
-        self.data(y0 >> 8)
-        self.data(y0 & 0xFF)                    # YSTART
-        self.data(y1 >> 8)
-        self.data(y1 & 0xFF)                    # YEND
-        self.command(0x2C)        # write to RAM
-
-    def display(self, image=None):
-        """Write the display buffer or provided image to the hardware.  If no
-        image parameter is provided the display buffer will be written to the
-        hardware.  If an image is provided, it should be RGB format and the
-        same dimensions as the display hardware.
-        """
-        # By default write the internal buffer to the display.
-        if image is None:
-            image = self.buffer
-        # Set address bounds to entire display.
-        self.set_window()
-        # Convert image to array of 16bit 565 RGB data bytes.
-        # Unfortunate that this copy has to occur, but the SPI byte writing
-        # function needs to take an array of bytes and PIL doesn't natively
-        # store images in 16-bit 565 RGB format.
-        pixelbytes = list(image_to_data(image))
-        # Write data to hardware.
-        self.data(pixelbytes)
-
-    def clear(self, color=(0,0,0)):
-        """Clear the image buffer to the specified RGB color (default black)."""
-        width, height = self.buffer.size
-        self.buffer.putdata([color]*(width*height))
-
-    def draw(self):
-        """Return a PIL ImageDraw instance for 2D drawing on the image buffer."""
-        return ImageDraw.Draw(self.buffer)
+    # nanogui apps typically call with no args. ugui and tgui pass split and
+    # may pass a Lock depending on lock_mode
+    async def do_refresh(self, split=4, elock=None):
+        if elock is None:
+            elock = asyncio.Lock()
+        async with self._lock:
+            lines, mod = divmod(self._long, split)  # Lines per segment
+            if mod:
+                raise ValueError("Invalid do_refresh arg.")
+            clut = ILI9486.lut
+            lb = self._linebuf
+            buf = self.mvb
+            cm = self._gscale  # color False, greyscale True
+            self._wcmd(b"\x2c")  # WRITE_RAM
+            self._dc(1)
+            if self.width < self.height:  # Portrait: write sets of rows
+                wd = self.width // 2
+                line = 0
+                for _ in range(split):  # For each segment
+                    async with elock:
+                        if self._spi_init:  # A callback was passed
+                            self._spi_init(self._spi)  # Bus may be shared
+                        self._cs(0)
+                        for start in range(wd * line, wd * (line + lines), wd):  # For each line
+                            _lcopy(lb, buf[start:], clut, wd, cm)  # Copy and map colors
+                            self._spi.write(lb)
+                        line += lines
+                        self._cs(1)  # Allow other tasks to use bus
+                    await asyncio.sleep_ms(0)
+            else:  # Landscape: write sets of cols. lines is no. of cols per segment.
+                cargs = (self.height << 9) + (self.width << 18)  # Viper 4-arg limit
+                sc = self.width - 1  # Start and end columns
+                ec = sc - lines  # End column
+                for _ in range(split):  # For each segment
+                    async with elock:
+                        if self._spi_init:  # A callback was passed
+                            self._spi_init(self._spi)  # Bus may be shared
+                        self._cs(0)
+                        for col in range(sc, ec, -1):  # For each column of landscape display
+                            _lscopy(lb, buf, clut, col + cargs, cm)  # Copy and map colors
+                            self._spi.write(lb)
+                        sc -= lines
+                        ec -= lines
+                        self._cs(1)  # Allow other tasks to use bus
+                    await asyncio.sleep_ms(0)
