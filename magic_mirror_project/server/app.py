@@ -6,33 +6,38 @@ import json
 import threading
 import time
 import logging
-import socket
 import os
 import sys
+import asyncio
 
-# Importação condicional do Bluetooth (compatibilidade com diferentes SOs)
+# Importação BLE
 try:
-    from bluetooth import *
-    BLUETOOTH_AVAILABLE = True
+    import bleak
+    from bleak import BleakScanner, BleakClient, BleakServer, BleakGATTCharacteristic, BleakGATTService
+    from bleak.backends.service import BleakGATTService
+    from bleak.backends.characteristic import BleakGATTCharacteristic
+    BLE_AVAILABLE = True
 except ImportError:
-    BLUETOOTH_AVAILABLE = False
-    print("ATENÇÃO: Biblioteca pybluez não encontrada. Instale com: pip install pybluez")
+    BLE_AVAILABLE = False
+    print("ERRO: Biblioteca bleak não encontrada. Instale com: pip install bleak")
 
 app = Flask(__name__)
 CORS(app)
 
-# ===== CONFIGURAÇÕES BLUETOOTH =====
-BLUETOOTH_SERVICE_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
-BLUETOOTH_SERVICE_NAME = "Magic Mirror Events"
-BLUETOOTH_PORT = 3  # Porta RFCOMM padrão
+# ===== CONFIGURAÇÕES BLE =====
+BLE_SERVICE_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
+BLE_CHAR_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ef"
+BLE_SERVER_NAME = "Magic Mirror Server"
 
-# Variáveis globais Bluetooth
-bluetooth_server_socket = None
-bluetooth_connected = False
-connected_client_socket = None
-connected_device_info = None
+# Variáveis globais BLE
+ble_server = None
+ble_connected = False
+ble_client_device = None
+ble_message_buffer = ""
 discovered_devices = []
 scanning = False
+ble_loop = None
+ble_thread = None
 
 # Configuração de logging
 logging.basicConfig(
@@ -60,16 +65,16 @@ def init_db():
         )
     ''')
     
-    # Tabela de dispositivos conectados
+    # Tabela de dispositivos BLE
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pico_devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             device_id TEXT UNIQUE NOT NULL,
             name TEXT DEFAULT 'Magic Mirror',
-            bluetooth_address TEXT,
+            ble_address TEXT,
             last_sync TEXT,
             status TEXT DEFAULT 'offline',
-            communication_type TEXT DEFAULT 'bluetooth',
+            communication_type TEXT DEFAULT 'ble',
             signal_strength INTEGER DEFAULT 0,
             firmware_version TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -80,285 +85,320 @@ def init_db():
     
     conn.commit()
     conn.close()
-    logger.info("Banco de dados inicializado")
+    logger.info("Banco de dados inicializado para BLE")
 
-# ===== FUNÇÕES AUXILIARES =====
-def get_bluetooth_status():
-    """Retorna status atual do Bluetooth"""
-    return {
-        'available': BLUETOOTH_AVAILABLE,
-        'connected': bluetooth_connected,
-        'device': connected_device_info,
-        'scanning': scanning,
-        'server_running': bluetooth_server_socket is not None
-    }
-
-def safe_json_dumps(data):
-    """Converte dados para JSON de forma segura"""
-    try:
-        return json.dumps(data, ensure_ascii=False)
-    except Exception as e:
-        logger.error(f"Erro ao serializar JSON: {e}")
-        return json.dumps({"error": "Serialization failed"})
-
-# ===== FUNÇÕES BLUETOOTH =====
-def inicializar_bluetooth_server():
-    """Inicializa servidor Bluetooth RFCOMM"""
-    global bluetooth_server_socket
-    
-    if not BLUETOOTH_AVAILABLE:
-        logger.error("Bluetooth não disponível - pybluez não instalado")
-        return False
-    
-    try:
-        # Cria socket Bluetooth RFCOMM
-        bluetooth_server_socket = BluetoothSocket(RFCOMM)
-        bluetooth_server_socket.bind(("", BLUETOOTH_PORT))
-        bluetooth_server_socket.listen(1)
+# ===== FUNÇÕES BLE SERVIDOR =====
+class BLEServer:
+    def __init__(self):
+        self.server = None
+        self.service = None
+        self.characteristic = None
+        self.connected_device = None
+        self.message_buffer = ""
         
-        port = bluetooth_server_socket.getsockname()[1]
-        
-        # Anuncia o serviço
-        advertise_service(
-            bluetooth_server_socket,
-            BLUETOOTH_SERVICE_NAME,
-            service_id=BLUETOOTH_SERVICE_UUID,
-            service_classes=[BLUETOOTH_SERVICE_UUID, SERIAL_PORT_CLASS],
-            profiles=[SERIAL_PORT_PROFILE]
-        )
-        
-        logger.info(f"Servidor Bluetooth iniciado na porta RFCOMM {port}")
-        logger.info(f"Nome do serviço: {BLUETOOTH_SERVICE_NAME}")
-        logger.info(f"UUID: {BLUETOOTH_SERVICE_UUID}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Erro ao inicializar servidor Bluetooth: {e}")
-        bluetooth_server_socket = None
-        return False
-
-def aceitar_conexoes_bluetooth():
-    """Loop principal para aceitar conexões Bluetooth"""
-    global bluetooth_server_socket, connected_client_socket, bluetooth_connected, connected_device_info
-    
-    logger.info("Aguardando conexões Bluetooth...")
-    
-    while True:
+    async def start_server(self):
+        """Inicia servidor BLE"""
         try:
-            if not bluetooth_server_socket:
-                logger.warning("Socket Bluetooth não disponível, tentando reinicializar...")
-                time.sleep(10)
-                inicializar_bluetooth_server()
-                continue
+            logger.info("Iniciando servidor BLE...")
             
-            # Aceita conexão
-            logger.info("Esperando cliente conectar...")
-            client_socket, client_address = bluetooth_server_socket.accept()
-            logger.info(f"Cliente Bluetooth conectado: {client_address}")
+            # Cria serviço e característica
+            service = BleakGATTService(BLE_SERVICE_UUID, "Magic Mirror Service", True)
             
-            # Desconecta cliente anterior se existir
-            if connected_client_socket:
-                try:
-                    connected_client_socket.close()
-                except:
-                    pass
-            
-            # Configura nova conexão
-            connected_client_socket = client_socket
-            bluetooth_connected = True
-            
-            # Obtém nome do dispositivo
-            try:
-                device_name = lookup_name(client_address, timeout=5)
-                connected_device_info = {
-                    'address': client_address,
-                    'name': device_name or f'Dispositivo-{client_address}'
-                }
-            except:
-                connected_device_info = {
-                    'address': client_address,
-                    'name': f'Dispositivo-{client_address}'
-                }
-            
-            logger.info(f"Dispositivo conectado: {connected_device_info['name']} ({client_address})")
-            
-            # Registra dispositivo no banco
-            registrar_dispositivo_bluetooth(connected_device_info)
-            
-            # Thread para comunicação com este cliente
-            client_thread = threading.Thread(
-                target=gerenciar_cliente_bluetooth,
-                args=(client_socket, client_address),
-                daemon=True
+            char = BleakGATTCharacteristic(
+                BLE_CHAR_UUID,
+                ["read", "write", "notify"],
+                service,
+                "Magic Mirror Data"
             )
-            client_thread.start()
+            
+            service.add_characteristic(char)
+            
+            # Inicia servidor
+            self.server = BleakServer(name=BLE_SERVER_NAME)
+            self.server.add_service(service)
+            
+            # Callbacks
+            self.server.set_connect_callback(self.on_connect)
+            self.server.set_disconnect_callback(self.on_disconnect)
+            char.set_write_callback(self.on_write)
+            
+            await self.server.start()
+            logger.info(f"Servidor BLE iniciado: {BLE_SERVER_NAME}")
+            
+            self.service = service
+            self.characteristic = char
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Erro ao aceitar conexão: {e}")
-            time.sleep(5)
-
-def gerenciar_cliente_bluetooth(client_socket, client_address):
-    """Gerencia comunicação com um cliente específico"""
-    global bluetooth_connected, connected_client_socket, connected_device_info
+            logger.error(f"Erro ao iniciar servidor BLE: {e}")
+            return False
     
-    try:
-        # Configura timeout do socket
-        client_socket.settimeout(30.0)
+    async def on_connect(self, device):
+        """Callback de conexão"""
+        global ble_connected, ble_client_device
+        
+        self.connected_device = device
+        ble_connected = True
+        ble_client_device = {
+            'address': device.address,
+            'name': device.name or f"Dispositivo-{device.address[-6:]}"
+        }
+        
+        logger.info(f"Cliente BLE conectado: {ble_client_device['name']} ({device.address})")
+        
+        # Registra dispositivo
+        registrar_dispositivo_ble(ble_client_device)
         
         # Envia handshake
-        enviar_handshake_bluetooth(client_socket)
-        
-        buffer = ""
-        
-        while True:
-            try:
-                # Recebe dados
-                data = client_socket.recv(1024).decode('utf-8')
-                if not data:
-                    logger.info(f"Cliente {client_address} desconectou (sem dados)")
-                    break
-                
-                buffer += data
-                
-                # Processa mensagens completas (separadas por \n)
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                    if line.strip():
-                        processar_mensagem_bluetooth(line.strip(), client_socket, client_address)
-                
-            except socket.timeout:
-                # Envia ping para verificar conexão
-                ping_payload = {
-                    "action": "ping",
-                    "timestamp": datetime.now().isoformat()
-                }
-                if not enviar_bluetooth(client_socket, ping_payload):
-                    logger.warning(f"Falha no ping para {client_address}")
-                    break
-                continue
-                
-            except Exception as e:
-                logger.error(f"Erro na comunicação com {client_address}: {e}")
-                break
-        
-    except Exception as e:
-        logger.error(f"Erro no gerenciamento do cliente {client_address}: {e}")
+        await self.send_handshake()
     
-    finally:
-        # Cleanup da conexão
+    async def on_disconnect(self, device):
+        """Callback de desconexão"""
+        global ble_connected, ble_client_device
+        
+        logger.info(f"Cliente BLE desconectado: {device.address}")
+        
+        ble_connected = False
+        ble_client_device = None
+        self.connected_device = None
+        self.message_buffer = ""
+    
+    async def on_write(self, characteristic, data):
+        """Callback de escrita"""
         try:
-            client_socket.close()
-        except:
-            pass
-        
-        if connected_client_socket == client_socket:
-            connected_client_socket = None
-            bluetooth_connected = False
-            connected_device_info = None
-            logger.info("Dispositivo principal desconectado")
-        
-        logger.info(f"Cliente {client_address} desconectado")
-
-def enviar_handshake_bluetooth(client_socket):
-    """Envia handshake inicial"""
-    try:
+            message_part = data.decode('utf-8')
+            self.message_buffer += message_part
+            
+            # Processa mensagens completas
+            while '\n' in self.message_buffer:
+                line, self.message_buffer = self.message_buffer.split('\n', 1)
+                if line.strip():
+                    await self.processar_mensagem(line.strip())
+                    
+        except Exception as e:
+            logger.error(f"Erro ao processar escrita BLE: {e}")
+    
+    async def processar_mensagem(self, message_str):
+        """Processa mensagem recebida"""
+        try:
+            message = json.loads(message_str)
+            action = message.get("action", "")
+            device_id = message.get("device_id", "")
+            
+            logger.info(f"Mensagem BLE: {action} de {device_id}")
+            
+            # Atualiza heartbeat
+            atualizar_heartbeat_dispositivo(device_id)
+            
+            if action == "ping":
+                await self.send_ping_response(device_id)
+            elif action == "device_info":
+                await self.processar_device_info(message)
+            elif action == "device_status":
+                processar_status_dispositivo_ble(message)
+            elif action == "event_completed":
+                processar_evento_concluido(message)
+            elif action == "sync_complete":
+                processar_sync_completo_ble(message)
+            elif action == "request_events":
+                await self.sincronizar_eventos(device_id)
+            else:
+                logger.warning(f"Ação BLE desconhecida: {action}")
+                
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON inválido: {e} - {message_str}")
+        except Exception as e:
+            logger.error(f"Erro ao processar mensagem BLE: {e}")
+    
+    async def send_handshake(self):
+        """Envia handshake inicial"""
         handshake = {
             "action": "handshake",
-            "server": "Magic Mirror Events Server",
-            "protocol": "bluetooth_rfcomm",
+            "server": "Magic Mirror BLE Server",
+            "protocol": "ble",
             "version": "2.0",
-            "service_uuid": BLUETOOTH_SERVICE_UUID,
             "timestamp": datetime.now().isoformat()
         }
         
-        enviar_bluetooth(client_socket, handshake)
-        logger.info("Handshake enviado")
+        await self.send_data(handshake)
+    
+    async def send_ping_response(self, device_id):
+        """Responde ping"""
+        response = {
+            "action": "ping_response",
+            "device_id": device_id,
+            "server_time": datetime.now().isoformat(),
+            "status": "ok"
+        }
+        await self.send_data(response)
+    
+    async def processar_device_info(self, data):
+        """Processa informações do dispositivo"""
+        device_id = data.get("device_id")
         
-    except Exception as e:
-        logger.error(f"Erro no handshake: {e}")
-
-def processar_mensagem_bluetooth(message_str, client_socket, client_address):
-    """Processa mensagem recebida"""
-    try:
-        message = json.loads(message_str)
-        action = message.get("action", "")
-        device_id = message.get("device_id", client_address.replace(':', ''))
-        
-        logger.info(f"Mensagem recebida: {action} de {client_address}")
-        
-        # Atualiza heartbeat
-        atualizar_heartbeat_dispositivo(device_id)
-        
-        # Roteamento de ações
-        if action == "ping":
-            processar_ping_bluetooth(client_socket, device_id)
-        elif action == "device_info":
-            processar_info_dispositivo_bluetooth(message, client_socket, client_address)
-        elif action == "device_status":
-            processar_status_dispositivo_bluetooth(message)
-        elif action == "event_completed":
-            processar_evento_concluido(message)
-        elif action == "event_ack":
-            processar_ack_evento(message)
-        elif action == "sync_complete":
-            processar_sync_completo_bluetooth(message)
-        elif action == "request_events":
-            sincronizar_dispositivo_bluetooth(client_socket, device_id)
-        else:
-            logger.warning(f"Ação desconhecida: {action}")
+        try:
+            conn = sqlite3.connect('database.db')
+            cursor = conn.cursor()
             
-    except json.JSONDecodeError as e:
-        logger.warning(f"JSON inválido recebido: {e} - Data: {message_str}")
-    except Exception as e:
-        logger.error(f"Erro ao processar mensagem: {e}")
+            cursor.execute('''
+                INSERT OR REPLACE INTO pico_devices 
+                (device_id, name, ble_address, status, communication_type, 
+                 firmware_version, last_sync, last_heartbeat) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                device_id,
+                data.get('name', 'Magic Mirror BLE'),
+                ble_client_device['address'] if ble_client_device else '',
+                'online',
+                'ble',
+                data.get('firmware_version', '2.0.0-BLE'),
+                datetime.now().isoformat(),
+                datetime.now().isoformat()
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Dispositivo BLE registrado: {device_id}")
+            
+            # Sincroniza eventos automaticamente
+            await self.sincronizar_eventos(device_id)
+            
+        except Exception as e:
+            logger.error(f"Erro ao processar device info: {e}")
+    
+    async def sincronizar_eventos(self, device_id):
+        """Sincroniza eventos de hoje"""
+        try:
+            hoje = datetime.now().strftime('%Y-%m-%d')
+            
+            conn = sqlite3.connect('database.db')
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, nome, hora, data 
+                FROM eventos 
+                WHERE data = ? 
+                ORDER BY hora
+            """, (hoje,))
+            eventos_hoje = cursor.fetchall()
+            conn.close()
+            
+            events_list = []
+            for event_id, nome, hora, data in eventos_hoje:
+                events_list.append({
+                    "id": event_id,
+                    "nome": nome,
+                    "hora": hora,
+                    "data": data
+                })
+            
+            payload = {
+                "action": "sync_events",
+                "device_id": device_id,
+                "events": events_list,
+                "sync_time": datetime.now().isoformat(),
+                "filter_date": hoje
+            }
+            
+            await self.send_data(payload)
+            logger.info(f"Sincronizados {len(events_list)} eventos para {device_id}")
+            
+        except Exception as e:
+            logger.error(f"Erro na sincronização: {e}")
+    
+    async def send_data(self, data):
+        """Envia dados para cliente"""
+        if not self.connected_device or not self.characteristic:
+            return False
+        
+        try:
+            message = json.dumps(data, ensure_ascii=False)
+            
+            # Divide em chunks para respeitar MTU
+            chunk_size = 20
+            chunks = [message[i:i+chunk_size] for i in range(0, len(message), chunk_size)]
+            
+            for i, chunk in enumerate(chunks):
+                if i == len(chunks) - 1:
+                    chunk += "\n"  # Marca fim da mensagem
+                
+                await self.characteristic.notify(chunk.encode('utf-8'))
+                await asyncio.sleep(0.01)  # Pequeno delay
+            
+            logger.debug(f"Enviado BLE: {data.get('action', 'unknown')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao enviar BLE: {e}")
+            return False
 
-def processar_ping_bluetooth(client_socket, device_id):
-    """Responde a ping"""
-    response = {
-        "action": "ping_response",
-        "device_id": device_id,
-        "server_time": datetime.now().isoformat(),
-        "status": "ok"
-    }
-    enviar_bluetooth(client_socket, response)
+# Instância global do servidor BLE
+ble_server_instance = None
 
-def processar_info_dispositivo_bluetooth(data, client_socket, client_address):
-    """Processa informações do dispositivo"""
-    device_id = data.get("device_id", client_address.replace(':', ''))
+# ===== FUNÇÕES BLE CLIENTE (DESCOBERTA) =====
+async def scan_ble_devices():
+    """Escaneia dispositivos BLE"""
+    global discovered_devices
+    
+    if not BLE_AVAILABLE:
+        return []
     
     try:
+        logger.info("Escaneando dispositivos BLE...")
+        devices = await BleakScanner.discover(timeout=10.0)
+        
+        ble_devices = []
+        for device in devices:
+            if device.name and ("MagicMirror" in device.name or "Magic" in device.name):
+                device_info = {
+                    'address': device.address,
+                    'name': device.name,
+                    'rssi': getattr(device, 'rssi', -50),
+                    'type': 'BLE'
+                }
+                ble_devices.append(device_info)
+                logger.info(f"Dispositivo BLE encontrado: {device.name} ({device.address})")
+        
+        discovered_devices.extend(ble_devices)
+        return ble_devices
+        
+    except Exception as e:
+        logger.error(f"Erro no scan BLE: {e}")
+        return []
+
+# ===== FUNÇÕES AUXILIARES =====
+def registrar_dispositivo_ble(device_info):
+    """Registra dispositivo BLE no banco"""
+    try:
+        device_id = device_info['address'].replace(':', '').replace('-', '')
+        
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         
         cursor.execute('''
             INSERT OR REPLACE INTO pico_devices 
-            (device_id, name, bluetooth_address, status, communication_type, 
-             firmware_version, last_sync, last_heartbeat) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (device_id, name, ble_address, status, communication_type, last_heartbeat) 
+            VALUES (?, ?, ?, ?, ?, ?)
         ''', (
             device_id,
-            data.get('name', 'Magic Mirror'),
-            client_address,
+            device_info['name'],
+            device_info['address'],
             'online',
-            'bluetooth',
-            data.get('firmware_version', '2.0.0'),
-            datetime.now().isoformat(),
+            'ble',
             datetime.now().isoformat()
         ))
         
         conn.commit()
         conn.close()
         
-        logger.info(f"Dispositivo registrado: {device_id}")
-        
-        # Sincroniza eventos automaticamente
-        sincronizar_dispositivo_bluetooth(client_socket, device_id)
+        logger.info(f"Dispositivo BLE registrado: {device_info['name']}")
         
     except Exception as e:
-        logger.error(f"Erro ao registrar dispositivo: {e}")
+        logger.error(f"Erro ao registrar dispositivo BLE: {e}")
 
-def processar_status_dispositivo_bluetooth(data):
-    """Processa status do dispositivo"""
+def processar_status_dispositivo_ble(data):
+    """Processa status do dispositivo BLE"""
     device_id = data.get("device_id")
     status = data.get("status", "online")
     events_count = data.get("events_count", 0)
@@ -376,13 +416,13 @@ def processar_status_dispositivo_bluetooth(data):
         conn.commit()
         conn.close()
         
-        logger.info(f"Status atualizado: {device_id} - {status}")
+        logger.info(f"Status BLE atualizado: {device_id} - {status}")
         
     except Exception as e:
-        logger.error(f"Erro ao atualizar status: {e}")
+        logger.error(f"Erro ao atualizar status BLE: {e}")
 
-def processar_sync_completo_bluetooth(data):
-    """Processa confirmação de sincronização"""
+def processar_sync_completo_ble(data):
+    """Processa confirmação de sincronização BLE"""
     device_id = data.get("device_id")
     events_count = data.get("events_count", 0)
     
@@ -390,7 +430,6 @@ def processar_sync_completo_bluetooth(data):
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         
-        # Atualiza dispositivo
         cursor.execute('''
             UPDATE pico_devices 
             SET last_sync = ?, events_count = ?
@@ -408,10 +447,10 @@ def processar_sync_completo_bluetooth(data):
         conn.commit()
         conn.close()
         
-        logger.info(f"Sincronização completa: {device_id} ({events_count} eventos)")
+        logger.info(f"Sincronização BLE completa: {device_id} ({events_count} eventos)")
         
     except Exception as e:
-        logger.error(f"Erro ao processar sync: {e}")
+        logger.error(f"Erro ao processar sync BLE: {e}")
 
 def processar_evento_concluido(data):
     """Remove evento concluído"""
@@ -432,91 +471,6 @@ def processar_evento_concluido(data):
         except Exception as e:
             logger.error(f"Erro ao processar evento concluído: {e}")
 
-def processar_ack_evento(data):
-    """Processa confirmação de evento"""
-    event_id = data.get("event_id")
-    logger.info(f"ACK recebido para evento {event_id}")
-
-def enviar_bluetooth(client_socket, data):
-    """Envia dados via Bluetooth"""
-    try:
-        message = safe_json_dumps(data) + "\n"
-        client_socket.send(message.encode('utf-8'))
-        logger.debug(f"Enviado: {data.get('action', 'unknown')}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Erro ao enviar via Bluetooth: {e}")
-        return False
-
-def sincronizar_dispositivo_bluetooth(client_socket, device_id):
-    """Sincroniza eventos de hoje"""
-    try:
-        hoje = datetime.now().strftime('%Y-%m-%d')
-        
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, nome, hora, data 
-            FROM eventos 
-            WHERE data = ? 
-            ORDER BY hora
-        """, (hoje,))
-        eventos_hoje = cursor.fetchall()
-        conn.close()
-        
-        # Formata eventos
-        events_list = []
-        for event_id, nome, hora, data in eventos_hoje:
-            events_list.append({
-                "id": event_id,
-                "nome": nome,
-                "hora": hora,
-                "data": data
-            })
-        
-        # Envia sincronização
-        payload = {
-            "action": "sync_events",
-            "device_id": device_id,
-            "events": events_list,
-            "sync_time": datetime.now().isoformat(),
-            "filter_date": hoje
-        }
-        
-        if enviar_bluetooth(client_socket, payload):
-            logger.info(f"Enviados {len(events_list)} eventos para {device_id}")
-        
-    except Exception as e:
-        logger.error(f"Erro na sincronização: {e}")
-
-def registrar_dispositivo_bluetooth(device_info):
-    """Registra dispositivo no banco"""
-    try:
-        device_id = device_info['address'].replace(':', '')
-        
-        conn = sqlite3.connect('database.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT OR REPLACE INTO pico_devices 
-            (device_id, name, bluetooth_address, status, communication_type, last_heartbeat) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            device_id,
-            device_info['name'],
-            device_info['address'],
-            'online',
-            'bluetooth',
-            datetime.now().isoformat()
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-    except Exception as e:
-        logger.error(f"Erro ao registrar: {e}")
-
 def atualizar_heartbeat_dispositivo(device_id):
     """Atualiza último heartbeat"""
     try:
@@ -532,12 +486,48 @@ def atualizar_heartbeat_dispositivo(device_id):
     except:
         pass
 
-def descobrir_dispositivos_bluetooth():
-    """Descobre dispositivos Bluetooth"""
+# ===== THREAD BLE =====
+def run_ble_loop():
+    """Roda loop BLE em thread separada"""
+    global ble_loop, ble_server_instance
+    
+    ble_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(ble_loop)
+    
+    async def main_ble():
+        if BLE_AVAILABLE:
+            ble_server_instance = BLEServer()
+            await ble_server_instance.start_server()
+            
+            # Mantém servidor rodando
+            while True:
+                await asyncio.sleep(1)
+        else:
+            logger.error("BLE não disponível")
+    
+    try:
+        ble_loop.run_until_complete(main_ble())
+    except Exception as e:
+        logger.error(f"Erro no loop BLE: {e}")
+
+def iniciar_comunicacao_ble():
+    """Inicia sistema BLE"""
+    global ble_thread
+    
+    if not BLE_AVAILABLE:
+        logger.error("Sistema BLE não disponível - bleak não instalado")
+        return
+    
+    ble_thread = threading.Thread(target=run_ble_loop, daemon=True)
+    ble_thread.start()
+    logger.info("Sistema BLE iniciado")
+
+def descobrir_dispositivos_ble():
+    """Descobre dispositivos BLE"""
     global discovered_devices, scanning
     
-    if not BLUETOOTH_AVAILABLE:
-        logger.error("Bluetooth não disponível")
+    if not BLE_AVAILABLE:
+        logger.error("BLE não disponível")
         return []
     
     if scanning:
@@ -547,71 +537,45 @@ def descobrir_dispositivos_bluetooth():
     discovered_devices = []
     
     try:
-        logger.info("Iniciando descoberta de dispositivos...")
+        # Executa scan em loop próprio
+        def run_scan():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(scan_ble_devices())
+            loop.close()
         
-        nearby_devices = discover_devices(
-            duration=10, 
-            lookup_names=True, 
-            flush_cache=True
-        )
-        
-        for addr, name in nearby_devices:
-            device_info = {
-                'address': addr,
-                'name': name or f'Dispositivo-{addr}',
-                'rssi': -50  # Valor padrão
-            }
-            discovered_devices.append(device_info)
-            logger.info(f"Encontrado: {name} ({addr})")
-        
-        logger.info(f"Descoberta finalizada: {len(discovered_devices)} dispositivos")
+        scan_thread = threading.Thread(target=run_scan, daemon=True)
+        scan_thread.start()
+        scan_thread.join(timeout=15)
         
     except Exception as e:
-        logger.error(f"Erro na descoberta: {e}")
+        logger.error(f"Erro na descoberta BLE: {e}")
     finally:
         scanning = False
     
     return discovered_devices
 
-# ===== THREAD BLUETOOTH =====
-def iniciar_comunicacao_bluetooth():
-    """Inicia sistema Bluetooth"""
-    if not BLUETOOTH_AVAILABLE:
-        logger.error("Sistema Bluetooth não disponível - pybluez não instalado")
-        return
-    
-    def servidor_bluetooth():
-        if inicializar_bluetooth_server():
-            aceitar_conexoes_bluetooth()
-        else:
-            logger.error("Falha ao inicializar servidor Bluetooth")
-    
-    thread = threading.Thread(target=servidor_bluetooth, daemon=True)
-    thread.start()
-    logger.info("Sistema Bluetooth iniciado")
-
 # ===== INICIALIZAÇÃO =====
 init_db()
-iniciar_comunicacao_bluetooth()
+iniciar_comunicacao_ble()
 
 # ===== ROTAS HTTP =====
 @app.route('/')
 def serve_index():
     """Serve página principal"""
-    # Procura index.html em diferentes locais
     for path in ['.', 'templates', 'static']:
         index_path = os.path.join(path, 'index.html')
         if os.path.exists(index_path):
             return send_from_directory(path, 'index.html')
     
-    # Se não encontrar, retorna HTML básico
-    return '''
+    return f'''
     <html>
-    <head><title>Magic Mirror</title></head>
+    <head><title>Magic Mirror BLE</title></head>
     <body>
-    <h1>Magic Mirror Server</h1>
-    <p>Servidor rodando. Interface web não encontrada.</p>
-    <p>Status Bluetooth: ''' + str(get_bluetooth_status()) + '''</p>
+    <h1>Magic Mirror BLE Server</h1>
+    <p>Servidor BLE rodando</p>
+    <p>BLE Disponível: {BLE_AVAILABLE}</p>
+    <p>Conectado: {ble_connected}</p>
     </body>
     </html>
     '''
@@ -643,7 +607,7 @@ def adicionar_evento():
 
         # Envia para dispositivo se for hoje e conectado
         hoje = datetime.now().strftime('%Y-%m-%d')
-        if data_evento == hoje and connected_client_socket and bluetooth_connected:
+        if data_evento == hoje and ble_connected and ble_server_instance:
             payload = {
                 "action": "add_event",
                 "event": {
@@ -655,13 +619,15 @@ def adicionar_evento():
                 "timestamp": datetime.now().isoformat()
             }
             
-            if enviar_bluetooth(connected_client_socket, payload):
-                # Marca como sincronizado
-                conn = sqlite3.connect('database.db')
-                cursor = conn.cursor()
-                cursor.execute("UPDATE eventos SET sincronizado = 1 WHERE id = ?", (evento_id,))
-                conn.commit()
-                conn.close()
+            # Envia assincronamente
+            def send_async():
+                if ble_loop:
+                    asyncio.run_coroutine_threadsafe(
+                        ble_server_instance.send_data(payload), 
+                        ble_loop
+                    )
+            
+            threading.Thread(target=send_async, daemon=True).start()
 
         return jsonify({'mensagem': 'Evento cadastrado!', 'id': evento_id}), 201
     
@@ -727,13 +693,21 @@ def deletar_todos_eventos():
         conn.close()
 
         if rows_affected > 0:
-            # Notifica dispositivo
-            if connected_client_socket and bluetooth_connected:
+            # Notifica dispositivo BLE
+            if ble_connected and ble_server_instance:
                 payload = {
                     "action": "remove_all_events",
                     "timestamp": datetime.now().isoformat()
                 }
-                enviar_bluetooth(connected_client_socket, payload)
+                
+                def send_async():
+                    if ble_loop:
+                        asyncio.run_coroutine_threadsafe(
+                            ble_server_instance.send_data(payload), 
+                            ble_loop
+                        )
+                
+                threading.Thread(target=send_async, daemon=True).start()
             
             return jsonify({'mensagem': f'{rows_affected} eventos deletados'}), 200
         else:
@@ -755,14 +729,22 @@ def deletar_evento(evento_id):
         conn.close()
 
         if rows_affected > 0:
-            # Notifica dispositivo
-            if connected_client_socket and bluetooth_connected:
+            # Notifica dispositivo BLE
+            if ble_connected and ble_server_instance:
                 payload = {
                     "action": "remove_event",
                     "event_id": evento_id,
                     "timestamp": datetime.now().isoformat()
                 }
-                enviar_bluetooth(connected_client_socket, payload)
+                
+                def send_async():
+                    if ble_loop:
+                        asyncio.run_coroutine_threadsafe(
+                            ble_server_instance.send_data(payload), 
+                            ble_loop
+                        )
+                
+                threading.Thread(target=send_async, daemon=True).start()
             
             return jsonify({'mensagem': 'Evento deletado'}), 200
         else:
@@ -793,17 +775,15 @@ def info_sistema():
         
         conn.close()
         
-        status = get_bluetooth_status()
-        
         return jsonify({
             'eventos_hoje': eventos_hoje_count,
             'total_eventos': total_eventos,
             'total_dispositivos': total_dispositivos,
-            'protocolo': 'Bluetooth RFCOMM',
-            'bluetooth_conectado': status['connected'],
-            'bluetooth_disponivel': status['available'],
-            'dispositivo_conectado': connected_device_info['name'] if connected_device_info else None,
-            'versao': '2.0-Bluetooth',
+            'protocolo': 'Bluetooth Low Energy (BLE)',
+            'bluetooth_conectado': ble_connected,
+            'bluetooth_disponivel': BLE_AVAILABLE,
+            'dispositivo_conectado': ble_client_device['name'] if ble_client_device else None,
+            'versao': '2.0-BLE',
             'modo': 'OFFLINE',
             'data_atual': hoje
         }), 200
@@ -816,14 +796,23 @@ def info_sistema():
 def sincronizar_manual():
     """Sincronização manual"""
     try:
-        if not connected_client_socket or not bluetooth_connected:
-            return jsonify({"erro": "Nenhum dispositivo conectado"}), 400
+        if not ble_connected or not ble_server_instance:
+            return jsonify({"erro": "Nenhum dispositivo BLE conectado"}), 400
         
-        device_id = connected_device_info['address'].replace(':', '') if connected_device_info else 'unknown'
-        sincronizar_dispositivo_bluetooth(connected_client_socket, device_id)
+        device_id = ble_client_device['address'].replace(':', '').replace('-', '') if ble_client_device else 'unknown'
+        
+        # Sincroniza assincronamente
+        def sync_async():
+            if ble_loop:
+                asyncio.run_coroutine_threadsafe(
+                    ble_server_instance.sincronizar_eventos(device_id), 
+                    ble_loop
+                )
+        
+        threading.Thread(target=sync_async, daemon=True).start()
         
         return jsonify({
-            'mensagem': f'Sincronização iniciada para {connected_device_info.get("name", "dispositivo")}',
+            'mensagem': f'Sincronização BLE iniciada para {ble_client_device.get("name", "dispositivo")}',
             'dispositivos_sincronizados': 1
         }), 200
     
@@ -838,7 +827,7 @@ def listar_dispositivos():
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT device_id, name, bluetooth_address, status, last_sync, events_count, 
+            SELECT device_id, name, ble_address, status, last_sync, events_count, 
                    firmware_version, last_heartbeat, created_at
             FROM pico_devices 
             ORDER BY created_at DESC
@@ -848,26 +837,26 @@ def listar_dispositivos():
 
         dispositivos_formatados = []
         for row in dispositivos:
-            device_id, name, bt_addr, status, last_sync, events_count, fw_ver, last_hb, created = row
+            device_id, name, ble_addr, status, last_sync, events_count, fw_ver, last_hb, created = row
             
             # Verifica se está conectado atualmente
             current_status = 'online' if (
-                bluetooth_connected and 
-                connected_device_info and 
-                connected_device_info['address'] == bt_addr
+                ble_connected and 
+                ble_client_device and 
+                ble_client_device['address'] == ble_addr
             ) else 'offline'
             
             dispositivos_formatados.append({
                 'device_id': device_id,
                 'name': name,
-                'bluetooth_address': bt_addr,
+                'ble_address': ble_addr,
                 'status': current_status,
                 'last_sync': last_sync,
                 'events_count': events_count or 0,
                 'firmware_version': fw_ver or 'Unknown',
                 'last_heartbeat': last_hb,
                 'created_at': created,
-                'connection_type': 'Bluetooth RFCOMM'
+                'connection_type': 'Bluetooth Low Energy (BLE)'
             })
 
         return jsonify(dispositivos_formatados)
@@ -876,149 +865,85 @@ def listar_dispositivos():
         logger.error(f"Erro ao listar dispositivos: {e}")
         return jsonify({"erro": "Erro interno"}), 500
 
-# BLUETOOTH ESPECÍFICO
+# BLE ESPECÍFICO
 @app.route('/api/bluetooth/scan', methods=['POST'])
-def iniciar_scan_bluetooth():
-    """Inicia descoberta de dispositivos"""
-    if not BLUETOOTH_AVAILABLE:
-        return jsonify({"erro": "Bluetooth não disponível"}), 400
+def iniciar_scan_ble():
+    """Inicia descoberta de dispositivos BLE"""
+    if not BLE_AVAILABLE:
+        return jsonify({"erro": "BLE não disponível"}), 400
     
     try:
-        # Inicia em thread separada
-        scan_thread = threading.Thread(target=descobrir_dispositivos_bluetooth, daemon=True)
+        # Inicia scan em thread separada
+        scan_thread = threading.Thread(target=descobrir_dispositivos_ble, daemon=True)
         scan_thread.start()
         
-        return jsonify({'mensagem': 'Descoberta iniciada'}), 200
+        return jsonify({'mensagem': 'Descoberta BLE iniciada'}), 200
     
     except Exception as e:
-        logger.error(f"Erro ao iniciar scan: {e}")
-        return jsonify({"erro": "Erro ao iniciar descoberta"}), 500
+        logger.error(f"Erro ao iniciar scan BLE: {e}")
+        return jsonify({"erro": "Erro ao iniciar descoberta BLE"}), 500
 
 @app.route('/api/bluetooth/scan/stop', methods=['POST'])
-def parar_scan_bluetooth():
-    """Para descoberta"""
+def parar_scan_ble():
+    """Para descoberta BLE"""
     global scanning
     scanning = False
-    return jsonify({'mensagem': 'Descoberta interrompida'}), 200
+    return jsonify({'mensagem': 'Descoberta BLE interrompida'}), 200
 
 @app.route('/api/bluetooth/devices', methods=['GET'])
 def listar_dispositivos_descobertos():
-    """Lista dispositivos descobertos"""
+    """Lista dispositivos BLE descobertos"""
     return jsonify(discovered_devices)
 
-@app.route('/api/bluetooth/connect', methods=['POST'])
-def conectar_bluetooth():
-    """Conecta a dispositivo específico (modo cliente ativo)"""
-    if not BLUETOOTH_AVAILABLE:
-        return jsonify({"erro": "Bluetooth não disponível"}), 400
-    
-    try:
-        data = request.get_json()
-        address = data.get('address')
-        name = data.get('name', 'Dispositivo')
-        
-        if not address:
-            return jsonify({"erro": "Endereço obrigatório"}), 400
-        
-        # Conecta em thread separada para não bloquear
-        def conectar_async():
-            try:
-                logger.info(f"Tentando conectar a {name} ({address})")
-                
-                # Busca serviços disponíveis
-                services = find_service(address=address)
-                
-                if not services:
-                    logger.warning(f"Nenhum serviço encontrado em {address}")
-                    return False
-                
-                # Procura serviço RFCOMM
-                target_service = None
-                for service in services:
-                    if service.get('protocol') == 'RFCOMM':
-                        target_service = service
-                        break
-                
-                if not target_service:
-                    target_service = services[0]  # Usa primeiro disponível
-                
-                # Conecta
-                sock = BluetoothSocket(RFCOMM)
-                sock.connect((address, target_service['port']))
-                sock.settimeout(30.0)
-                
-                # Atualiza estado global
-                global connected_client_socket, bluetooth_connected, connected_device_info
-                
-                # Fecha conexão anterior
-                if connected_client_socket:
-                    try:
-                        connected_client_socket.close()
-                    except:
-                        pass
-                
-                connected_client_socket = sock
-                bluetooth_connected = True
-                connected_device_info = {'address': address, 'name': name}
-                
-                logger.info(f"Conectado a {name} ({address})")
-                
-                # Registra no banco
-                registrar_dispositivo_bluetooth(connected_device_info)
-                
-                # Gerencia comunicação
-                gerenciar_cliente_bluetooth(sock, address)
-                
-            except Exception as e:
-                logger.error(f"Erro ao conectar: {e}")
-        
-        connect_thread = threading.Thread(target=conectar_async, daemon=True)
-        connect_thread.start()
-        
-        return jsonify({'mensagem': f'Conectando a {name}...'}), 200
-    
-    except Exception as e:
-        logger.error(f"Erro na conexão: {e}")
-        return jsonify({"erro": "Erro de conexão"}), 500
-
 @app.route('/api/bluetooth/status', methods=['GET'])
-def status_bluetooth():
-    """Status da conexão"""
-    return jsonify(get_bluetooth_status()), 200
+def status_ble():
+    """Status da conexão BLE"""
+    return jsonify({
+        'connected': ble_connected,
+        'device': ble_client_device,
+        'scanning': scanning,
+        'server_running': ble_server_instance is not None,
+        'ble_available': BLE_AVAILABLE
+    }), 200
 
 @app.route('/api/bluetooth/disconnect', methods=['POST'])
-def desconectar_bluetooth():
-    """Desconecta dispositivo atual"""
-    global connected_client_socket, bluetooth_connected, connected_device_info
+def desconectar_ble():
+    """Desconecta dispositivo BLE atual"""
+    global ble_connected, ble_client_device
     
     try:
-        device_name = connected_device_info.get('name', 'dispositivo') if connected_device_info else 'dispositivo'
+        device_name = ble_client_device.get('name', 'dispositivo') if ble_client_device else 'dispositivo'
         
-        if connected_client_socket:
-            connected_client_socket.close()
-            connected_client_socket = None
+        # Força desconexão
+        if ble_server_instance and ble_server_instance.connected_device:
+            def disconnect_async():
+                if ble_loop:
+                    # BLE desconecta automaticamente quando cliente para
+                    pass
+            
+            threading.Thread(target=disconnect_async, daemon=True).start()
         
-        bluetooth_connected = False
-        connected_device_info = None
+        ble_connected = False
+        ble_client_device = None
         
         return jsonify({'mensagem': f'Desconectado de {device_name}'}), 200
     
     except Exception as e:
-        logger.error(f"Erro ao desconectar: {e}")
-        return jsonify({"erro": "Erro na desconexão"}), 500
+        logger.error(f"Erro ao desconectar BLE: {e}")
+        return jsonify({"erro": "Erro na desconexão BLE"}), 500
 
 # MAIN
 if __name__ == '__main__':
     print("=" * 60)
-    print("MAGIC MIRROR - SERVIDOR BLUETOOTH")
+    print("MAGIC MIRROR - SERVIDOR BLE")
     print("=" * 60)
-    print(f"Bluetooth disponível: {BLUETOOTH_AVAILABLE}")
-    if BLUETOOTH_AVAILABLE:
-        print(f"Serviço: {BLUETOOTH_SERVICE_NAME}")
-        print(f"UUID: {BLUETOOTH_SERVICE_UUID}")
-        print(f"Porta RFCOMM: {BLUETOOTH_PORT}")
+    print(f"BLE disponível: {BLE_AVAILABLE}")
+    if BLE_AVAILABLE:
+        print(f"Serviço: {BLE_SERVER_NAME}")
+        print(f"UUID Serviço: {BLE_SERVICE_UUID}")
+        print(f"UUID Característica: {BLE_CHAR_UUID}")
     else:
-        print("ATENÇÃO: Instale pybluez com: pip install pybluez")
+        print("ATENÇÃO: Instale bleak com: pip install bleak")
     print("=" * 60)
     print("Servidor iniciando em http://localhost:5000")
     print("=" * 60)
