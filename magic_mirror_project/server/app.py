@@ -717,6 +717,34 @@ def eventos_hoje():
         logger.error(f"Erro ao listar eventos de hoje: {e}")
         return jsonify({"erro": "Erro interno do servidor"}), 500
 
+@app.route('/api/eventos', methods=['DELETE'])
+def deletar_todos_eventos():
+    """Deleta todos os eventos"""
+    try:
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM eventos")
+        rows_affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+
+        if rows_affected > 0:
+            # Envia comando de remoção via LoRa
+            payload = {
+                "action": "remove_all_events",
+                "timestamp": datetime.now().isoformat()
+            }
+            enviar_lora(payload)
+            
+            logger.info("Todos os eventos deletados")
+            return jsonify({'mensagem': 'Todos os eventos deletados com sucesso!'}), 200
+        else:
+            return jsonify({"erro": "Nenhum evento para deletar"}), 404
+    
+    except Exception as e:
+        logger.error(f"Erro ao deletar todos os eventos: {e}")
+        return jsonify({"erro": "Erro interno do servidor"}), 500
+
 @app.route('/api/eventos/<int:evento_id>', methods=['DELETE'])
 def deletar_evento(evento_id):
     """Deleta um evento"""
