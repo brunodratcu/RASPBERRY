@@ -74,29 +74,125 @@
     'y': [0x00, 0x00, 0x66, 0x66, 0x66, 0x3E, 0x0C, 0x78],
     'z': [0x00, 0x00, 0x7E, 0x0C, 0x18, 0x30, 0x7E, 0x00],
 }
+
+# === CONFIGURAÇÕES WIFI ===
+WIFI_SSID = "iPhone A C Dratcu"      # Altere para seu WiFi
+WIFI_PASSWORD = "s7wgr4dobgdse"  # Altere para sua senha
 """
 
-# main.py - Magic Mirror - Exatamente como solicitado
+# main.py - Magic Mirror - Com Sincronização WiFi
 import machine
 import utime
 import ujson
 import ubluetooth
 import gc
+import network
+import urequests
 from machine import Pin, RTC
 
 print("MAGIC MIRROR - Iniciando...")
 
+# === CONFIGURAÇÕES WIFI ===
+WIFI_SSID = "SEU_WIFI_AQUI"      # Altere para seu WiFi
+WIFI_PASSWORD = "SUA_SENHA_AQUI"  # Altere para sua senha
+
 # === HARDWARE CORRETO ===
 rtc = RTC()
-# Configura RTC automaticamente
-try:
-    current_system_time = utime.localtime()
-    if current_system_time[0] > 2020:
-        rtc.datetime(current_system_time)
+
+# Função para conectar WiFi
+def conectar_wifi():
+    """Conecta ao WiFi"""
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    
+    if wlan.isconnected():
+        print("WiFi já conectado!")
+        return True
+    
+    print(f"Conectando WiFi: {WIFI_SSID}...")
+    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    
+    # Aguarda conexão (máximo 10 segundos)
+    timeout = 10
+    while timeout > 0:
+        if wlan.status() < 0 or wlan.status() >= 3:
+            break
+        timeout -= 1
+        print("Conectando...")
+        utime.sleep(1)
+    
+    if wlan.isconnected():
+        print(f"WiFi conectado! IP: {wlan.ifconfig()[0]}")
+        return True
     else:
-        rtc.datetime((2024, 12, 25, 2, 16, 30, 0, 0))
-except:
+        print("ERRO: Falha ao conectar WiFi!")
+        return False
+
+# Função para sincronizar horário via API
+def sincronizar_horario():
+    """Sincroniza horário via API WorldTimeAPI"""
+    try:
+        print("Sincronizando horário...")
+        
+        # API para horário de São Paulo, Brasil
+        url = "http://worldtimeapi.org/api/timezone/America/Sao_Paulo"
+        response = urequests.get(url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            datetime_str = data["datetime"]  # formato: 2024-12-25T17:30:45.123456-03:00
+            
+            # Extrai data e hora da string
+            date_part, time_part = datetime_str.split("T")
+            time_part = time_part.split(".")[0]  # remove microssegundos
+            
+            # Parse da data
+            ano, mes, dia = map(int, date_part.split("-"))
+            
+            # Parse da hora
+            hora, minuto, segundo = map(int, time_part.split(":"))
+            
+            # Configura RTC
+            # Formato: (ano, mês, dia, dia_semana, hora, minuto, segundo, subsegundo)
+            # dia_semana será calculado automaticamente
+            rtc.datetime((ano, mes, dia, 0, hora, minuto, segundo, 0))
+            
+            print(f"Horário sincronizado: {dia:02d}/{mes:02d}/{ano} {hora:02d}:{minuto:02d}:{segundo:02d}")
+            response.close()
+            return True
+            
+        else:
+            print(f"ERRO API: Status {response.status_code}")
+            response.close()
+            return False
+            
+    except Exception as e:
+        print(f"ERRO na sincronização: {e}")
+        return False
+
+# Função para inicializar com horário correto
+def inicializar_horario():
+    """Inicializa o sistema com horário correto"""
+    print("=== INICIALIZANDO HORÁRIO ===")
+    
+    # Tenta conectar WiFi
+    if conectar_wifi():
+        # Tenta sincronizar horário
+        if sincronizar_horario():
+            print("✅ Horário sincronizado com sucesso!")
+            return True
+        else:
+            print("❌ Falha na sincronização")
+    else:
+        print("❌ Sem WiFi disponível")
+    
+    # Fallback: define horário padrão
+    print("⚠️  Usando horário padrão...")
     rtc.datetime((2024, 12, 25, 2, 16, 30, 0, 0))
+    return False
+
+# Inicializa horário na inicialização
+inicializar_horario()
 
 # Pinos display CORRETOS
 rst = Pin(16, Pin.OUT, value=1)  # GP16
@@ -311,23 +407,30 @@ def update_display():
     h, m, s = t[4], t[5], t[6]
     d, mo, y = t[2], t[1], t[0]
     
+    # POSIÇÕES CORRIGIDAS PARA CENTRALIZAR O RELÓGIO
+    pos_h = 80      # Posição das horas
+    pos_c1 = 160    # Primeiro dois pontos
+    pos_m = 200     # Posição dos minutos  
+    pos_c2 = 280    # Segundo dois pontos
+    pos_s = 320     # Posição dos segundos
+    
     # ATUALIZA SÓ DÍGITOS QUE MUDARAM
     if h != last_time['h']:
-        fill_rect(150, 80, 50, 40, BLACK)
-        draw_text(150, 80, f"{h:02d}", WHITE, 4)
+        fill_rect(pos_h, 80, 80, 40, BLACK)
+        draw_text(pos_h, 80, f"{h:02d}", WHITE, 4)
         last_time['h'] = h
     
     if m != last_time['m']:
-        fill_rect(220, 80, 50, 40, BLACK)
-        draw_text(220, 80, f"{m:02d}", WHITE, 4)
+        fill_rect(pos_m, 80, 80, 40, BLACK)
+        draw_text(pos_m, 80, f"{m:02d}", WHITE, 4)
         last_time['m'] = m
     
     if s != last_time['s']:
-        fill_rect(290, 80, 50, 40, BLACK)
-        draw_text(290, 80, f"{s:02d}", WHITE, 4)
+        fill_rect(pos_s, 80, 80, 40, BLACK)
+        draw_text(pos_s, 80, f"{s:02d}", WHITE, 4)
         last_time['s'] = s
     
-    # ATUALIZA DATA (SÓ QUANDO MUDA)
+    # ATUALIZA DATA (SÓ QUANDO MUDA) - Embaixo do relógio
     if d != last_date['d'] or mo != last_date['m'] or y != last_date['y']:
         fill_rect(120, 140, 240, 25, BLACK)
         draw_centered(140, f"{d:02d}/{mo:02d}/{y}", WHITE, 2)
@@ -351,7 +454,7 @@ def update_display():
             if evt_hora:
                 draw_centered(205, evt_hora, YELLOW, 2)
             if evt_nome:
-                nome_curto = evt_nome[:25]  # Máximo 25 chars
+                nome_curto = evt_nome[:25]
                 draw_centered(230, nome_curto, WHITE, 2)
         else:
             draw_centered(200, "SEM EVENTOS HOJE", WHITE, 2)
@@ -364,11 +467,9 @@ def check_button():
     if last_btn == 1 and b == 0:
         display_on = not display_on
         if display_on:
-            # Força redesenho completo ao ligar
             fill_rect(0, 0, 480, 320, BLACK)
-            draw_centered(30, "MAGIC MIRROR", WHITE, 3)
-            draw_text(200, 80, ":", WHITE, 4)  # Dois pontos fixos
-            draw_text(270, 80, ":", WHITE, 4)
+            draw_text(160, 80, ":", WHITE, 4)
+            draw_text(280, 80, ":", WHITE, 4)
             last_time = {'h': None, 'm': None, 's': None}
             last_date = {'d': None, 'm': None, 'y': None}
             last_event = {'nome': None, 'hora': None}
@@ -381,16 +482,16 @@ def check_button():
 print("Inicializando LCD...")
 init_lcd()
 
-print("Tela de boas-vindas...")
+print("Tela de inicialização...")
 fill_rect(0, 0, 480, 320, BLACK)
-draw_centered(150, "BEM-VINDO", WHITE, 5)
+draw_centered(100, "MAGIC MIRROR", WHITE, 4)
+draw_centered(150, "CONECTANDO WIFI...", CYAN, 2)
 utime.sleep(2)
 
 print("Preparando interface...")
 fill_rect(0, 0, 480, 320, BLACK)
-draw_centered(30, "MAGIC MIRROR", WHITE, 3)
-draw_text(200, 80, ":", WHITE, 4)  # Dois pontos fixos
-draw_text(270, 80, ":", WHITE, 4)
+draw_text(160, 80, ":", WHITE, 4)
+draw_text(280, 80, ":", WHITE, 4)
 
 print("Iniciando BLE...")
 ble = BLE()
@@ -402,7 +503,7 @@ while True:
     try:
         check_button()
         update_display()
-        utime.sleep_ms(200)  # 5x por segundo
+        utime.sleep_ms(200)
         gc.collect()
     except Exception as e:
         print(f"Erro: {e}")
