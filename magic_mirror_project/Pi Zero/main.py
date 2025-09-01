@@ -80,7 +80,7 @@ WIFI_SSID = "iPhone A C Dratcu"      # Altere para seu WiFi
 WIFI_PASSWORD = "s7wgr4dobgdse"  # Altere para sua senha
 """
 
-# main.py - Magic Mirror - Com Sincronização WiFi
+# main.py - Magic Mirror - BLE Sincronizacao Corrigida
 import machine
 import utime
 import ujson
@@ -92,118 +92,28 @@ from machine import Pin, RTC
 
 print("MAGIC MIRROR - Iniciando...")
 
-# === CONFIGURAÇÕES WIFI ===
-WIFI_SSID = "SEU_WIFI_AQUI"      # Altere para seu WiFi
-WIFI_PASSWORD = "SUA_SENHA_AQUI"  # Altere para sua senha
+# === CONFIGURACOES WIFI ===
+WIFI_SSID = "Bruno Dratcu"
+WIFI_PASSWORD = "deniederror"
 
-# === HARDWARE CORRETO ===
+# === CONFIGURACOES BLE ===
+SERVICE_UUID = ubluetooth.UUID("12345678-1234-5678-9abc-123456789abc")
+EVENTS_CHAR_UUID = ubluetooth.UUID("12345678-1234-5678-9abc-123456789abd")
+RESPONSE_CHAR_UUID = ubluetooth.UUID("12345678-1234-5678-9abc-123456789abe")
+
+# === HARDWARE ===
 rtc = RTC()
 
-# Função para conectar WiFi
-def conectar_wifi():
-    """Conecta ao WiFi"""
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    
-    if wlan.isconnected():
-        print("WiFi já conectado!")
-        return True
-    
-    print(f"Conectando WiFi: {WIFI_SSID}...")
-    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-    
-    # Aguarda conexão (máximo 10 segundos)
-    timeout = 10
-    while timeout > 0:
-        if wlan.status() < 0 or wlan.status() >= 3:
-            break
-        timeout -= 1
-        print("Conectando...")
-        utime.sleep(1)
-    
-    if wlan.isconnected():
-        print(f"WiFi conectado! IP: {wlan.ifconfig()[0]}")
-        return True
-    else:
-        print("ERRO: Falha ao conectar WiFi!")
-        return False
+# Pinos display
+rst = Pin(16, Pin.OUT, value=1)
+cs = Pin(17, Pin.OUT, value=1)
+rs = Pin(15, Pin.OUT, value=0)
+wr = Pin(19, Pin.OUT, value=1)
+rd = Pin(18, Pin.OUT, value=1)
+data_pins = [Pin(i, Pin.OUT) for i in [0,1,2,3,4,5,6,7]]
 
-# Função para sincronizar horário via API
-def sincronizar_horario():
-    """Sincroniza horário via API WorldTimeAPI"""
-    try:
-        print("Sincronizando horário...")
-        
-        # API para horário de São Paulo, Brasil
-        url = "http://worldtimeapi.org/api/timezone/America/Sao_Paulo"
-        response = urequests.get(url)
-        
-        if response.status_code == 200:
-            data = response.json()
-            datetime_str = data["datetime"]  # formato: 2024-12-25T17:30:45.123456-03:00
-            
-            # Extrai data e hora da string
-            date_part, time_part = datetime_str.split("T")
-            time_part = time_part.split(".")[0]  # remove microssegundos
-            
-            # Parse da data
-            ano, mes, dia = map(int, date_part.split("-"))
-            
-            # Parse da hora
-            hora, minuto, segundo = map(int, time_part.split(":"))
-            
-            # Configura RTC
-            # Formato: (ano, mês, dia, dia_semana, hora, minuto, segundo, subsegundo)
-            # dia_semana será calculado automaticamente
-            rtc.datetime((ano, mes, dia, 0, hora, minuto, segundo, 0))
-            
-            print(f"Horário sincronizado: {dia:02d}/{mes:02d}/{ano} {hora:02d}:{minuto:02d}:{segundo:02d}")
-            response.close()
-            return True
-            
-        else:
-            print(f"ERRO API: Status {response.status_code}")
-            response.close()
-            return False
-            
-    except Exception as e:
-        print(f"ERRO na sincronização: {e}")
-        return False
-
-# Função para inicializar com horário correto
-def inicializar_horario():
-    """Inicializa o sistema com horário correto"""
-    print("=== INICIALIZANDO HORÁRIO ===")
-    
-    # Tenta conectar WiFi
-    if conectar_wifi():
-        # Tenta sincronizar horário
-        if sincronizar_horario():
-            print("✅ Horário sincronizado com sucesso!")
-            return True
-        else:
-            print("❌ Falha na sincronização")
-    else:
-        print("❌ Sem WiFi disponível")
-    
-    # Fallback: define horário padrão
-    print("⚠️  Usando horário padrão...")
-    rtc.datetime((2024, 12, 25, 2, 16, 30, 0, 0))
-    return False
-
-# Inicializa horário na inicialização
-inicializar_horario()
-
-# Pinos display CORRETOS
-rst = Pin(16, Pin.OUT, value=1)  # GP16
-cs = Pin(17, Pin.OUT, value=1)   # GP17
-rs = Pin(15, Pin.OUT, value=0)   # GP15
-wr = Pin(19, Pin.OUT, value=1)   # GP19
-rd = Pin(18, Pin.OUT, value=1)   # GP18
-data_pins = [Pin(i, Pin.OUT) for i in [0,1,2,3,4,5,6,7]]  # GP0-GP7
-
-# Botão
-btn = Pin(21, Pin.IN, Pin.PULL_UP)  # GP21
+# Botao
+btn = Pin(21, Pin.IN, Pin.PULL_UP)
 
 # Cores
 BLACK = 0x0000
@@ -213,10 +123,85 @@ GREEN = 0x07E0
 YELLOW = 0xFFE0
 CYAN = 0x07FF
 
-# Estado
+# Estado global
 display_on = True
 events = []
 ble_connected = False
+message_buffer = ""
+
+def conectar_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    
+    if wlan.isconnected():
+        print("WiFi ja conectado!")
+        return True
+    
+    print("Conectando WiFi: " + WIFI_SSID)
+    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    
+    timeout = 10
+    while timeout > 0:
+        if wlan.status() < 0 or wlan.status() >= 3:
+            break
+        timeout -= 1
+        print("Conectando...")
+        utime.sleep(1)
+    
+    if wlan.isconnected():
+        print("WiFi conectado! IP: " + str(wlan.ifconfig()[0]))
+        return True
+    else:
+        print("ERRO: Falha ao conectar WiFi!")
+        return False
+
+def sincronizar_horario():
+    try:
+        print("Sincronizando horario...")
+        
+        url = "http://worldtimeapi.org/api/timezone/America/Sao_Paulo"
+        response = urequests.get(url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            datetime_str = data["datetime"]
+            
+            date_part, time_part = datetime_str.split("T")
+            time_part = time_part.split(".")[0]
+            
+            ano, mes, dia = map(int, date_part.split("-"))
+            hora, minuto, segundo = map(int, time_part.split(":"))
+            
+            rtc.datetime((ano, mes, dia, 0, hora, minuto, segundo, 0))
+            
+            print("Horario sincronizado: " + str(dia) + "/" + str(mes) + "/" + str(ano) + " " + str(hora) + ":" + str(minuto))
+            response.close()
+            return True
+            
+        else:
+            print("ERRO API: Status " + str(response.status_code))
+            response.close()
+            return False
+            
+    except Exception as e:
+        print("ERRO na sincronizacao: " + str(e))
+        return False
+
+def inicializar_horario():
+    print("=== INICIALIZANDO HORARIO ===")
+    
+    if conectar_wifi():
+        if sincronizar_horario():
+            print("Horario sincronizado com sucesso!")
+            return True
+        else:
+            print("Falha na sincronizacao")
+    else:
+        print("Sem WiFi disponivel")
+    
+    print("Usando horario padrao...")
+    rtc.datetime((2024, 12, 25, 2, 16, 30, 0, 0))
+    return False
 
 # === DISPLAY ===
 def write_byte(data):
@@ -245,7 +230,8 @@ def set_area(x0, y0, x1, y1):
     cmd(0x2C)
 
 def fill_rect(x, y, w, h, color):
-    if not display_on or w<=0 or h<=0: return
+    if not display_on or w<=0 or h<=0: 
+        return
     set_area(x, y, x+w-1, y+h-1)
     ch, cl = color>>8, color&0xFF
     cs.value(0); rs.value(1)
@@ -254,9 +240,8 @@ def fill_rect(x, y, w, h, color):
         write_byte(cl); wr.value(0); wr.value(1)
     cs.value(1)
 
-# === FONTE BITMAP SIMPLES ===
+# === FONTE BITMAP ===
 font = {
-    # NÚMEROS
     '0': [0x3C, 0x66, 0x6A, 0x72, 0x66, 0x66, 0x3C, 0x00],
     '1': [0x18, 0x18, 0x38, 0x18, 0x18, 0x18, 0x7E, 0x00],
     '2': [0x3C, 0x66, 0x06, 0x0C, 0x30, 0x60, 0x7E, 0x00],
@@ -267,15 +252,11 @@ font = {
     '7': [0x7E, 0x66, 0x0C, 0x18, 0x18, 0x18, 0x18, 0x00],
     '8': [0x3C, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x3C, 0x00],
     '9': [0x3C, 0x66, 0x66, 0x3E, 0x06, 0x66, 0x3C, 0x00],
-    
-    # SÍMBOLOS
     ':': [0x00, 0x00, 0x18, 0x00, 0x00, 0x18, 0x00, 0x00],
     '/': [0x00, 0x03, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x00],
     '-': [0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00],
     '.': [0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00],
     ' ': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-    
-    # MAIÚSCULAS
     'A': [0x18, 0x3C, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00],
     'B': [0x7C, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x7C, 0x00],
     'C': [0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00],
@@ -301,39 +282,12 @@ font = {
     'W': [0x63, 0x63, 0x63, 0x6B, 0x7F, 0x77, 0x63, 0x00],
     'X': [0x66, 0x66, 0x3C, 0x18, 0x3C, 0x66, 0x66, 0x00],
     'Y': [0x66, 0x66, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x00],
-    'Z': [0x7E, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x7E, 0x00],
-    
-    # MINÚSCULAS
-    'a': [0x00, 0x00, 0x3C, 0x06, 0x3E, 0x66, 0x3E, 0x00],
-    'b': [0x60, 0x60, 0x7C, 0x66, 0x66, 0x66, 0x7C, 0x00],
-    'c': [0x00, 0x00, 0x3C, 0x60, 0x60, 0x60, 0x3C, 0x00],
-    'd': [0x06, 0x06, 0x3E, 0x66, 0x66, 0x66, 0x3E, 0x00],
-    'e': [0x00, 0x00, 0x3C, 0x66, 0x7E, 0x60, 0x3C, 0x00],
-    'f': [0x0E, 0x18, 0x18, 0x7E, 0x18, 0x18, 0x18, 0x00],
-    'g': [0x00, 0x00, 0x3E, 0x66, 0x66, 0x3E, 0x06, 0x7C],
-    'h': [0x60, 0x60, 0x7C, 0x66, 0x66, 0x66, 0x66, 0x00],
-    'i': [0x18, 0x00, 0x38, 0x18, 0x18, 0x18, 0x3C, 0x00],
-    'j': [0x06, 0x00, 0x0E, 0x06, 0x06, 0x06, 0x66, 0x3C],
-    'k': [0x60, 0x60, 0x66, 0x6C, 0x78, 0x6C, 0x66, 0x00],
-    'l': [0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00],
-    'm': [0x00, 0x00, 0x66, 0x7F, 0x7F, 0x6B, 0x63, 0x00],
-    'n': [0x00, 0x00, 0x7C, 0x66, 0x66, 0x66, 0x66, 0x00],
-    'o': [0x00, 0x00, 0x3C, 0x66, 0x66, 0x66, 0x3C, 0x00],
-    'p': [0x00, 0x00, 0x7C, 0x66, 0x66, 0x7C, 0x60, 0x60],
-    'q': [0x00, 0x00, 0x3E, 0x66, 0x66, 0x3E, 0x06, 0x06],
-    'r': [0x00, 0x00, 0x7C, 0x66, 0x60, 0x60, 0x60, 0x00],
-    's': [0x00, 0x00, 0x3E, 0x60, 0x3C, 0x06, 0x7C, 0x00],
-    't': [0x18, 0x18, 0x7E, 0x18, 0x18, 0x18, 0x0E, 0x00],
-    'u': [0x00, 0x00, 0x66, 0x66, 0x66, 0x66, 0x3E, 0x00],
-    'v': [0x00, 0x00, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00],
-    'w': [0x00, 0x00, 0x63, 0x6B, 0x7F, 0x7F, 0x36, 0x00],
-    'x': [0x00, 0x00, 0x66, 0x3C, 0x18, 0x3C, 0x66, 0x00],
-    'y': [0x00, 0x00, 0x66, 0x66, 0x66, 0x3E, 0x0C, 0x78],
-    'z': [0x00, 0x00, 0x7E, 0x0C, 0x18, 0x30, 0x7E, 0x00],
+    'Z': [0x7E, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x7E, 0x00]
 }
 
 def draw_char(x, y, char, color, size):
-    if not display_on or char not in font: return
+    if not display_on or char not in font: 
+        return
     bitmap = font[char]
     for row in range(8):
         byte = bitmap[row]
@@ -342,43 +296,133 @@ def draw_char(x, y, char, color, size):
                 fill_rect(x + col*size, y + row*size, size, size, color)
 
 def draw_text(x, y, text, color, size):
-    if not display_on: return
+    if not display_on: 
+        return
     for i, c in enumerate(text):
         draw_char(x + i*(8*size + 2*size), y, c.upper(), color, size)
 
 def draw_centered(y, text, color, size):
-    if not display_on: return
+    if not display_on: 
+        return
     w = len(text) * (8*size + 2*size) - 2*size
     x = (480 - w) // 2
     draw_text(x, y, text, color, size)
+
+# === FUNCOES DE FORMATACAO ===
+def format_time(h, m):
+    h_str = "0" + str(h) if h < 10 else str(h)
+    m_str = "0" + str(m) if m < 10 else str(m)
+    return h_str + ":" + m_str
+
+def format_date(d, m, y):
+    d_str = "0" + str(d) if d < 10 else str(d)
+    m_str = "0" + str(m) if m < 10 else str(m)
+    return d_str + "/" + m_str + "/" + str(y)
 
 # === BLE ===
 class BLE:
     def __init__(self):
         try:
+            print("Inicializando BLE...")
             self.ble = ubluetooth.BLE()
             self.ble.active(True)
             self.ble.irq(self._irq)
-            char = (ubluetooth.UUID("00002a00-0000-1000-8000-00805f9b34fb"), ubluetooth.FLAG_WRITE)
-            svc = (ubluetooth.UUID("00001800-0000-1000-8000-00805f9b34fb"), (char,))
-            ((self.h,),) = self.ble.gatts_register_services((svc,))
-            self.ble.gap_advertise(100, b'\x02\x01\x06\x0c\x09MagicMirror')
-        except: pass
+            
+            events_char = (EVENTS_CHAR_UUID, ubluetooth.FLAG_WRITE | ubluetooth.FLAG_WRITE_NO_RESPONSE)
+            response_char = (RESPONSE_CHAR_UUID, ubluetooth.FLAG_READ | ubluetooth.FLAG_NOTIFY)
+            
+            service = (SERVICE_UUID, (events_char, response_char))
+            ((self.events_handle, self.response_handle),) = self.ble.gatts_register_services((service,))
+            
+            self._advertise()
+            print("BLE inicializado!")
+            
+        except Exception as e:
+            print("ERRO BLE: " + str(e))
     
-    def _irq(self, e, d):
-        global ble_connected, events
+    def _advertise(self):
         try:
-            if e == 1: ble_connected = True
-            elif e == 2: ble_connected = False; self.ble.gap_advertise(100, b'\x02\x01\x06\x0c\x09MagicMirror')
-            elif e == 3:
-                msg = self.ble.gatts_read(self.h).decode().strip()
-                if msg and '{' in msg:
-                    j = ujson.loads(msg)
-                    if j.get('action') == 'sync_events':
-                        events = j.get('events', [])[:5]
-        except: pass
+            name = b'MagicMirror'
+            payload = bytearray()
+            payload.extend(b'\x02\x01\x06')
+            payload.extend(bytes([len(name) + 1, 0x09]) + name)
+            self.ble.gap_advertise(100, payload)
+        except Exception as e:
+            print("Erro anuncio: " + str(e))
+    
+    def _irq(self, event, data):
+        global ble_connected, message_buffer
+        
+        try:
+            if event == 1:  # _IRQ_CENTRAL_CONNECT
+                ble_connected = True
+                print("Cliente conectado!")
+                
+            elif event == 2:  # _IRQ_CENTRAL_DISCONNECT
+                ble_connected = False
+                print("Cliente desconectado!")
+                self._advertise()
+                
+            elif event == 3:  # _IRQ_GATTS_WRITE
+                conn_handle, attr_handle = data
+                if attr_handle == self.events_handle:
+                    written_data = self.ble.gatts_read(attr_handle)
+                    self._handle_received_data(written_data)
+                    
+        except Exception as e:
+            print("Erro IRQ: " + str(e))
+    
+    def _handle_received_data(self, data):
+        global message_buffer
+        
+        try:
+            chunk = data.decode('utf-8')
+            message_buffer += chunk
+            
+            while '\n' in message_buffer:
+                line, message_buffer = message_buffer.split('\n', 1)
+                line = line.strip()
+                
+                if line and line.startswith('{'):
+                    self._process_json_message(line)
+                    
+        except Exception as e:
+            print("Erro dados: " + str(e))
+    
+    def _process_json_message(self, json_str):
+        global events, last_event
+        
+        try:
+            message = ujson.loads(json_str)
+            action = message.get("action", "")
+            
+            print("Recebido: " + action)
+            
+            if action == "ping":
+                print("Ping - enviando Pong")
+                
+            elif action == "sync_events":
+                new_events = message.get("events", [])
+                date = message.get("date", "")
+                count = message.get("count", 0)
+                
+                print("Sincronizando " + str(count) + " eventos para " + date)
+                
+                events = new_events[:5]
+                
+                print(str(len(events)) + " eventos carregados:")
+                for i, event in enumerate(events):
+                    nome = event.get('nome', 'Sem nome')
+                    hora = event.get('hora', '--:--')
+                    print("  " + str(i+1) + ". " + hora + " - " + nome)
+                
+                # Força atualizacao do display
+                last_event = {'nome': None, 'hora': None}
+                
+        except Exception as e:
+            print("Erro JSON: " + str(e))
 
-# === CONTROLES DE MUDANÇA ===
+# === CONTROLES ===
 last_time = {'h': None, 'm': None, 's': None}
 last_date = {'d': None, 'm': None, 'y': None}
 last_event = {'nome': None, 'hora': None}
@@ -386,125 +430,218 @@ last_ble = None
 last_btn = 1
 
 def get_next_event():
-    if not events: return None
+    if not events: 
+        return None
+    
     try:
         t = rtc.datetime()
-        now_min = t[4] * 60 + t[5]
+        current_hour = t[4]
+        current_minute = t[5]
+        now_minutes = current_hour * 60 + current_minute
+        
         for event in events:
-            if 'hora' in event:
-                h, m = map(int, event['hora'].split(':'))
-                if h * 60 + m >= now_min:
-                    return event
-        return events[0]
-    except:
+            if 'hora' in event and event['hora']:
+                try:
+                    hora_str = event['hora']
+                    if ':' in hora_str:
+                        hour, minute = map(int, hora_str.split(':'))
+                        event_minutes = hour * 60 + minute
+                        
+                        if event_minutes >= now_minutes:
+                            return event
+                except:
+                    continue
+        
+        return events[0] if events else None
+        
+    except Exception as e:
+        print("Erro get_next_event: " + str(e))
         return events[0] if events else None
 
 def update_display():
     global last_time, last_date, last_event, last_ble
-    if not display_on: return
     
-    t = rtc.datetime()
-    h, m, s = t[4], t[5], t[6]
-    d, mo, y = t[2], t[1], t[0]
+    if not display_on: 
+        return
     
-    # POSIÇÕES CORRIGIDAS PARA CENTRALIZAR O RELÓGIO
-    pos_h = 80      # Posição das horas
-    pos_c1 = 160    # Primeiro dois pontos
-    pos_m = 200     # Posição dos minutos  
-    pos_c2 = 280    # Segundo dois pontos
-    pos_s = 320     # Posição dos segundos
-    
-    # ATUALIZA SÓ DÍGITOS QUE MUDARAM
-    if h != last_time['h']:
-        fill_rect(pos_h, 80, 80, 40, BLACK)
-        draw_text(pos_h, 80, f"{h:02d}", WHITE, 4)
-        last_time['h'] = h
-    
-    if m != last_time['m']:
-        fill_rect(pos_m, 80, 80, 40, BLACK)
-        draw_text(pos_m, 80, f"{m:02d}", WHITE, 4)
-        last_time['m'] = m
-    
-    if s != last_time['s']:
-        fill_rect(pos_s, 80, 80, 40, BLACK)
-        draw_text(pos_s, 80, f"{s:02d}", WHITE, 4)
-        last_time['s'] = s
-    
-    # ATUALIZA DATA (SÓ QUANDO MUDA) - Embaixo do relógio
-    if d != last_date['d'] or mo != last_date['m'] or y != last_date['y']:
-        fill_rect(120, 140, 240, 25, BLACK)
-        draw_centered(140, f"{d:02d}/{mo:02d}/{y}", WHITE, 2)
-        last_date = {'d': d, 'm': mo, 'y': y}
-    
-    # ATUALIZA BLE STATUS (SÓ QUANDO MUDA)
-    if ble_connected != last_ble:
-        fill_rect(10, 10, 40, 20, BLACK)
-        draw_text(10, 10, "BLE", GREEN if ble_connected else RED, 2)
-        last_ble = ble_connected
-    
-    # ATUALIZA EVENTO (SÓ QUANDO MUDA)
-    evt = get_next_event()
-    evt_nome = evt.get('nome', '') if evt else ''
-    evt_hora = evt.get('hora', '') if evt else ''
-    
-    if evt_nome != last_event['nome'] or evt_hora != last_event['hora']:
-        fill_rect(50, 180, 380, 60, BLACK)
-        if evt:
-            draw_centered(180, "EVENTO DO DIA", CYAN, 2)
-            if evt_hora:
-                draw_centered(205, evt_hora, YELLOW, 2)
-            if evt_nome:
-                nome_curto = evt_nome[:25]
-                draw_centered(230, nome_curto, WHITE, 2)
-        else:
-            draw_centered(200, "SEM EVENTOS HOJE", WHITE, 2)
+    try:
+        t = rtc.datetime()
+        h, m, s = t[4], t[5], t[6]
+        d, mo, y = t[2], t[1], t[0]
         
-        last_event = {'nome': evt_nome, 'hora': evt_hora}
+        # Posicoes do relogio
+        pos_h = 80
+        pos_m = 200
+        pos_s = 320
+        
+        # Atualiza horas
+        if h != last_time['h']:
+            fill_rect(pos_h, 80, 80, 40, BLACK)
+            h_str = "0" + str(h) if h < 10 else str(h)
+            draw_text(pos_h, 80, h_str, WHITE, 4)
+            last_time['h'] = h
+        
+        # Atualiza minutos
+        if m != last_time['m']:
+            fill_rect(pos_m, 80, 80, 40, BLACK)
+            m_str = "0" + str(m) if m < 10 else str(m)
+            draw_text(pos_m, 80, m_str, WHITE, 4)
+            last_time['m'] = m
+        
+        # Atualiza segundos
+        if s != last_time['s']:
+            fill_rect(pos_s, 80, 80, 40, BLACK)
+            s_str = "0" + str(s) if s < 10 else str(s)
+            draw_text(pos_s, 80, s_str, WHITE, 4)
+            last_time['s'] = s
+        
+        # Atualiza data
+        if d != last_date['d'] or mo != last_date['m'] or y != last_date['y']:
+            fill_rect(120, 140, 240, 25, BLACK)
+            date_str = format_date(d, mo, y)
+            draw_centered(140, date_str, WHITE, 2)
+            last_date = {'d': d, 'm': mo, 'y': y}
+        
+        # Atualiza status BLE
+        if ble_connected != last_ble:
+            fill_rect(10, 10, 50, 20, BLACK)
+            draw_text(10, 10, "BLE", GREEN if ble_connected else RED, 2)
+            last_ble = ble_connected
+        
+        # Atualiza evento
+        evt = get_next_event()
+        evt_nome = evt.get('nome', '') if evt else ''
+        evt_hora = evt.get('hora', '') if evt else ''
+        
+        if evt_nome != last_event['nome'] or evt_hora != last_event['hora']:
+            fill_rect(20, 180, 440, 100, BLACK)
+            
+            if evt:
+                draw_centered(185, "PROXIMO EVENTO", CYAN, 2)
+                
+                if evt_hora:
+                    draw_centered(210, evt_hora, YELLOW, 3)
+                
+                if evt_nome:
+                    nome_display = evt_nome[:22]
+                    draw_centered(240, nome_display, WHITE, 2)
+                    
+                print("Exibindo: " + evt_hora + " - " + evt_nome)
+            else:
+                draw_centered(200, "SEM EVENTOS HOJE", WHITE, 2)
+                draw_centered(225, "ADICIONE VIA APP", CYAN, 2)
+                print("Nenhum evento")
+            
+            last_event = {'nome': evt_nome, 'hora': evt_hora}
+    
+    except Exception as e:
+        print("Erro update_display: " + str(e))
 
 def check_button():
     global last_btn, display_on, last_time, last_date, last_event, last_ble
-    b = btn.value()
-    if last_btn == 1 and b == 0:
-        display_on = not display_on
-        if display_on:
-            fill_rect(0, 0, 480, 320, BLACK)
-            draw_text(160, 80, ":", WHITE, 4)
-            draw_text(280, 80, ":", WHITE, 4)
-            last_time = {'h': None, 'm': None, 's': None}
-            last_date = {'d': None, 'm': None, 'y': None}
-            last_event = {'nome': None, 'hora': None}
-            last_ble = None
-        else:
-            fill_rect(0, 0, 480, 320, BLACK)
-    last_btn = b
+    
+    try:
+        b = btn.value()
+        if last_btn == 1 and b == 0:
+            display_on = not display_on
+            status = "ON" if display_on else "OFF"
+            print("Display: " + status)
+            
+            if display_on:
+                fill_rect(0, 0, 480, 320, BLACK)
+                draw_text(160, 80, ":", WHITE, 4)
+                draw_text(280, 80, ":", WHITE, 4)
+                
+                last_time = {'h': None, 'm': None, 's': None}
+                last_date = {'d': None, 'm': None, 'y': None}
+                last_event = {'nome': None, 'hora': None}
+                last_ble = None
+            else:
+                fill_rect(0, 0, 480, 320, BLACK)
+        
+        last_btn = b
+        
+    except Exception as e:
+        print("Erro botao: " + str(e))
 
-# === INICIALIZAÇÃO ===
+# === INICIALIZACAO ===
+print("=" * 50)
+print("MAGIC MIRROR - INICIALIZANDO")
+print("=" * 50)
+
+inicializar_horario()
+
 print("Inicializando LCD...")
 init_lcd()
 
-print("Tela de inicialização...")
+print("Tela inicial...")
 fill_rect(0, 0, 480, 320, BLACK)
 draw_centered(100, "MAGIC MIRROR", WHITE, 4)
-draw_centered(150, "CONECTANDO WIFI...", CYAN, 2)
-utime.sleep(2)
+draw_centered(150, "SINCRONIZACAO BLE", CYAN, 2)
+draw_centered(180, "AGUARDANDO...", YELLOW, 2)
+utime.sleep(3)
 
-print("Preparando interface...")
+print("Iniciando BLE...")
+ble_handler = BLE()
+utime.sleep(1)
+
+print("Interface principal...")
 fill_rect(0, 0, 480, 320, BLACK)
 draw_text(160, 80, ":", WHITE, 4)
 draw_text(280, 80, ":", WHITE, 4)
 
-print("Iniciando BLE...")
-ble = BLE()
-
-print("PRONTO!")
+print("SISTEMA PRONTO!")
+print("=" * 50)
 
 # === LOOP PRINCIPAL ===
+loop_count = 0
+
 while True:
     try:
         check_button()
         update_display()
+        
+        # Status periodico
+        loop_count += 1
+        if loop_count % 150 == 0:
+            ble_status = "ON" if ble_connected else "OFF"
+            print("Status: BLE=" + ble_status + ", Eventos=" + str(len(events)))
+            
+            if events:
+                next_evt = get_next_event()
+                if next_evt:
+                    nome = next_evt.get('nome', 'Sem nome')
+                    hora = next_evt.get('hora', '--:--')
+                    print("Proximo: " + hora + " - " + nome)
+        
         utime.sleep_ms(200)
-        gc.collect()
+        
+        if loop_count % 50 == 0:
+            gc.collect()
+            
+    except KeyboardInterrupt:
+        print("Interrompido")
+        break
+        
     except Exception as e:
-        print(f"Erro: {e}")
+        print("ERRO: " + str(e))
         utime.sleep(1)
+        
+        try:
+            if display_on:
+                fill_rect(0, 0, 480, 320, BLACK)
+                draw_centered(160, "ERRO - REINICIANDO", RED, 2)
+                utime.sleep(2)
+                
+                fill_rect(0, 0, 480, 320, BLACK)
+                draw_text(160, 80, ":", WHITE, 4)
+                draw_text(280, 80, ":", WHITE, 4)
+                
+                last_time = {'h': None, 'm': None, 's': None}
+                last_date = {'d': None, 'm': None, 'y': None}
+                last_event = {'nome': None, 'hora': None}
+                last_ble = None
+        except:
+            pass
+
+print("Finalizado")
