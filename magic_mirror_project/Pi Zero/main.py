@@ -80,21 +80,21 @@ WIFI_SSID = "iPhone A C Dratcu"      # Altere para seu WiFi
 WIFI_PASSWORD = "s7wgr4dobgdse"  # Altere para sua senha
 """
 
-# main.py - Magic Mirror - BLE Sincronizacao Corrigida
+# main.py - Magic Mirror - BLE Sincronizacao com NTP
 import machine
 import utime
 import ujson
 import ubluetooth
 import gc
 import network
-import urequests
+import ntptime
 from machine import Pin, RTC
 
 print("MAGIC MIRROR - Iniciando...")
 
 # === CONFIGURACOES WIFI ===
-WIFI_SSID = "Bruno Dratcu"
-WIFI_PASSWORD = "deniederror"
+WIFI_SSID = "SUA_REDE_WIFI"
+WIFI_PASSWORD = "SUA_SENHA_WIFI"
 
 # === CONFIGURACOES BLE ===
 SERVICE_UUID = ubluetooth.UUID("12345678-1234-5678-9abc-123456789abc")
@@ -155,46 +155,33 @@ def conectar_wifi():
         print("ERRO: Falha ao conectar WiFi!")
         return False
 
-def sincronizar_horario():
-    try:
-        print("Sincronizando horario...")
-        
-        url = "http://worldtimeapi.org/api/timezone/America/Sao_Paulo"
-        response = urequests.get(url)
-        
-        if response.status_code == 200:
-            data = response.json()
-            datetime_str = data["datetime"]
-            
-            date_part, time_part = datetime_str.split("T")
-            time_part = time_part.split(".")[0]
-            
-            ano, mes, dia = map(int, date_part.split("-"))
-            hora, minuto, segundo = map(int, time_part.split(":"))
-            
-            rtc.datetime((ano, mes, dia, 0, hora, minuto, segundo, 0))
-            
-            print("Horario sincronizado: " + str(dia) + "/" + str(mes) + "/" + str(ano) + " " + str(hora) + ":" + str(minuto))
-            response.close()
-            return True
-            
-        else:
-            print("ERRO API: Status " + str(response.status_code))
-            response.close()
-            return False
-            
-    except Exception as e:
-        print("ERRO na sincronizacao: " + str(e))
-        return False
-
 def inicializar_horario():
     print("=== INICIALIZANDO HORARIO ===")
     
     if conectar_wifi():
-        if sincronizar_horario():
-            print("Horario sincronizado com sucesso!")
+        try:
+            print("Sincronizando horario via NTP...")
+            ntptime.settime()
+            
+            # Ajusta para horario de Brasilia (UTC-3)
+            # NTP retorna UTC, precisa subtrair 3 horas
+            timestamp_utc = utime.time()
+            timestamp_brasilia = timestamp_utc - (3 * 3600)  # 3 horas em segundos
+            
+            # Converte timestamp para tupla de data/hora
+            brasilia_time = utime.localtime(timestamp_brasilia)
+            
+            # Configura RTC com horario de Brasilia
+            rtc.datetime((brasilia_time[0], brasilia_time[1], brasilia_time[2], 
+                         brasilia_time[6], brasilia_time[3], brasilia_time[4], 
+                         brasilia_time[5], 0))
+            
+            t = rtc.datetime()
+            print("Horario Brasilia: " + str(t[2]) + "/" + str(t[1]) + "/" + str(t[0]) + " " + str(t[4]) + ":" + str(t[5]))
             return True
-        else:
+            
+        except Exception as e:
+            print("ERRO NTP: " + str(e))
             print("Falha na sincronizacao")
     else:
         print("Sem WiFi disponivel")
@@ -341,7 +328,6 @@ def draw_centered(y, text, color, size):
     x = (480 - w) // 2
     draw_text(x, y, text, color, size)
 
-# === FUNCOES DE FORMATACAO ===
 def format_time(h, m):
     h_str = "0" + str(h) if h < 10 else str(h)
     m_str = "0" + str(m) if m < 10 else str(m)
@@ -387,16 +373,16 @@ class BLE:
         global ble_connected, message_buffer
         
         try:
-            if event == 1:  # _IRQ_CENTRAL_CONNECT
+            if event == 1:
                 ble_connected = True
                 print("Cliente conectado!")
                 
-            elif event == 2:  # _IRQ_CENTRAL_DISCONNECT
+            elif event == 2:
                 ble_connected = False
                 print("Cliente desconectado!")
                 self._advertise()
                 
-            elif event == 3:  # _IRQ_GATTS_WRITE
+            elif event == 3:
                 conn_handle, attr_handle = data
                 if attr_handle == self.events_handle:
                     written_data = self.ble.gatts_read(attr_handle)
@@ -423,7 +409,7 @@ class BLE:
             print("Erro dados: " + str(e))
     
     def _process_json_message(self, json_str):
-        global events, last_event
+        global events
         
         try:
             message = ujson.loads(json_str)
@@ -449,50 +435,18 @@ class BLE:
                     hora = event.get('hora', '--:--')
                     print("  " + str(i+1) + ". " + hora + " - " + nome)
                 
-                # Força atualizacao do display
-                last_event = {'nome': None, 'hora': None}
-                
         except Exception as e:
             print("Erro JSON: " + str(e))
 
 # === CONTROLES ===
 last_time = {'h': None, 'm': None, 's': None}
 last_date = {'d': None, 'm': None, 'y': None}
-last_event = {'nome': None, 'hora': None}
+last_event_line = ""
 last_ble = None
 last_btn = 1
 
-def get_next_event():
-    if not events: 
-        return None
-    
-    try:
-        t = rtc.datetime()
-        current_hour = t[4]
-        current_minute = t[5]
-        now_minutes = current_hour * 60 + current_minute
-        
-        for event in events:
-            if 'hora' in event and event['hora']:
-                try:
-                    hora_str = event['hora']
-                    if ':' in hora_str:
-                        hour, minute = map(int, hora_str.split(':'))
-                        event_minutes = hour * 60 + minute
-                        
-                        if event_minutes >= now_minutes:
-                            return event
-                except:
-                    continue
-        
-        return events[0] if events else None
-        
-    except Exception as e:
-        print("Erro get_next_event: " + str(e))
-        return events[0] if events else None
-
 def update_display():
-    global last_time, last_date, last_event, last_ble
+    global last_time, last_date, last_event_line, last_ble
     
     if not display_on: 
         return
@@ -541,37 +495,62 @@ def update_display():
             draw_text(10, 10, "BLE", GREEN if ble_connected else RED, 2)
             last_ble = ble_connected
         
-        # Atualiza evento
-        evt = get_next_event()
-        evt_nome = evt.get('nome', '') if evt else ''
-        evt_hora = evt.get('hora', '') if evt else ''
-        
-        if evt_nome != last_event['nome'] or evt_hora != last_event['hora']:
-            fill_rect(20, 180, 440, 100, BLACK)
-            
-            if evt:
-                draw_centered(185, "PROXIMO EVENTO", CYAN, 2)
-                
-                if evt_hora:
-                    draw_centered(210, evt_hora, YELLOW, 3)
-                
-                if evt_nome:
-                    nome_display = evt_nome[:22]
-                    draw_centered(240, nome_display, WHITE, 2)
+        # Monta linha de eventos
+        eventos_str = ""
+        if events:
+            for i, evt in enumerate(events):
+                if i >= 3:
+                    break
                     
-                print("Exibindo: " + evt_hora + " - " + evt_nome)
+                nome = evt.get('nome', '')
+                hora = evt.get('hora', '')
+                
+                if nome and hora:
+                    if i > 0:
+                        eventos_str += " | "
+                    eventos_str += hora + " " + nome
+        
+        if eventos_str != last_event_line:
+            fill_rect(10, 180, 460, 100, BLACK)
+            
+            if eventos_str:
+                draw_centered(185, "EVENTOS DE HOJE", CYAN, 2)
+                
+                if len(eventos_str) <= 50:
+                    draw_centered(210, eventos_str, WHITE, 2)
+                else:
+                    parte1 = eventos_str[:50]
+                    if '|' in parte1:
+                        corte = parte1.rfind('|')
+                        if corte > 30:
+                            parte1 = eventos_str[:corte].strip()
+                            parte2 = eventos_str[corte+1:].strip()
+                        else:
+                            parte1 = eventos_str[:50]
+                            parte2 = eventos_str[50:]
+                    else:
+                        parte1 = eventos_str[:50]
+                        parte2 = eventos_str[50:]
+                    
+                    draw_centered(205, parte1, WHITE, 1)
+                    if len(parte2) > 0 and len(parte2) <= 50:
+                        draw_centered(225, parte2, WHITE, 1)
+                    elif len(parte2) > 50:
+                        draw_centered(225, parte2[:50] + "...", WHITE, 1)
+                
+                print("Eventos exibidos: " + eventos_str)
             else:
                 draw_centered(200, "SEM EVENTOS HOJE", WHITE, 2)
                 draw_centered(225, "ADICIONE VIA APP", CYAN, 2)
                 print("Nenhum evento")
             
-            last_event = {'nome': evt_nome, 'hora': evt_hora}
+            last_event_line = eventos_str
     
     except Exception as e:
         print("Erro update_display: " + str(e))
 
 def check_button():
-    global last_btn, display_on, last_time, last_date, last_event, last_ble
+    global last_btn, display_on, last_time, last_date, last_event_line, last_ble
     
     try:
         b = btn.value()
@@ -587,7 +566,7 @@ def check_button():
                 
                 last_time = {'h': None, 'm': None, 's': None}
                 last_date = {'d': None, 'm': None, 'y': None}
-                last_event = {'nome': None, 'hora': None}
+                last_event_line = ""
                 last_ble = None
             else:
                 fill_rect(0, 0, 480, 320, BLACK)
@@ -609,9 +588,8 @@ init_lcd()
 
 print("Tela inicial...")
 fill_rect(0, 0, 480, 320, BLACK)
-draw_centered(100, "MAGIC MIRROR", WHITE, 4)
-draw_centered(150, "SINCRONIZACAO BLE", CYAN, 2)
-draw_centered(180, "AGUARDANDO...", YELLOW, 2)
+draw_centered(100, "BEM-VINDO", WHITE, 4)
+draw_centered(150, "INICIALIZANDO...", CYAN, 2)
 utime.sleep(3)
 
 print("Iniciando BLE...")
@@ -634,18 +612,10 @@ while True:
         check_button()
         update_display()
         
-        # Status periodico
         loop_count += 1
         if loop_count % 150 == 0:
             ble_status = "ON" if ble_connected else "OFF"
             print("Status: BLE=" + ble_status + ", Eventos=" + str(len(events)))
-            
-            if events:
-                next_evt = get_next_event()
-                if next_evt:
-                    nome = next_evt.get('nome', 'Sem nome')
-                    hora = next_evt.get('hora', '--:--')
-                    print("Proximo: " + hora + " - " + nome)
         
         utime.sleep_ms(200)
         
@@ -672,9 +642,10 @@ while True:
                 
                 last_time = {'h': None, 'm': None, 's': None}
                 last_date = {'d': None, 'm': None, 'y': None}
-                last_event = {'nome': None, 'hora': None}
+                last_event_line = ""
                 last_ble = None
         except:
             pass
 
 print("Finalizado")
+

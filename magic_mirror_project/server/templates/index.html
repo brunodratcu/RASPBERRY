@@ -54,10 +54,15 @@
             opacity: 0.8;
         }
 
-        .bluetooth-button {
+        .bluetooth-controls {
             position: absolute;
             top: 0;
             right: 0;
+            display: flex;
+            gap: 10px;
+        }
+
+        .bluetooth-button {
             background: linear-gradient(135deg, rgba(0,123,255,0.2) 0%, rgba(0,100,255,0.1) 100%);
             border: 1px solid rgba(0,123,255,0.3);
             color: #007bff;
@@ -84,6 +89,33 @@
             background: linear-gradient(135deg, rgba(0,255,0,0.2) 0%, rgba(0,200,0,0.1) 100%);
             border-color: rgba(0,255,0,0.3);
             color: #00ff00;
+        }
+
+        .disconnect-button {
+            background: linear-gradient(135deg, rgba(255,100,0,0.2) 0%, rgba(255,80,0,0.1) 100%);
+            border: 1px solid rgba(255,100,0,0.3);
+            color: #ff6400;
+            padding: 12px 16px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            transition: all 0.3s ease;
+            width: 50px;
+            height: 50px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .disconnect-button:hover {
+            background: linear-gradient(135deg, rgba(255,100,0,0.3) 0%, rgba(255,80,0,0.2) 100%);
+            border-color: #ff6400;
+            box-shadow: 0 5px 20px rgba(255,100,0,0.3);
+            transform: scale(1.05);
+        }
+
+        .disconnect-button.show {
+            display: flex;
         }
 
         .status {
@@ -502,6 +534,12 @@
             border: 1px solid rgba(240,0,0,0.3);
         }
 
+        .message.info {
+            background: rgba(0,123,255,0.1);
+            color: #007bff;
+            border: 1px solid rgba(0,123,255,0.3);
+        }
+
         .loading {
             display: none;
             text-align: center;
@@ -561,9 +599,10 @@
                 margin-top: 10px;
             }
 
-            .bluetooth-button {
+            .bluetooth-controls {
                 position: static;
                 margin-top: 15px;
+                justify-content: center;
             }
 
             .bluetooth-modal-content {
@@ -579,9 +618,14 @@
         <div class="header">
             <h1>Minha agenda</h1>
             <p>Sistema de Eventos via Bluetooth</p>
-            <button id="bluetoothButton" class="bluetooth-button" title="Conectar via Bluetooth">
-                🔵
-            </button>
+            <div class="bluetooth-controls">
+                <button id="bluetoothButton" class="bluetooth-button" title="Conectar via Bluetooth">
+                    🔵
+                </button>
+                <button id="disconnectButton" class="disconnect-button" title="Desconectar dispositivo">
+                    ❌
+                </button>
+            </div>
         </div>
 
         <!-- Modal Bluetooth -->
@@ -605,6 +649,9 @@
                 <div id="connectedInfo" style="margin-top: 20px; padding: 15px; background: rgba(0,255,0,0.1); border: 1px solid rgba(0,255,0,0.3); border-radius: 8px; display: none;">
                     <strong style="color: #00ff00;">✅ Conectado:</strong>
                     <div id="connectedDeviceName" style="color: #e6fbff; margin-top: 5px;"></div>
+                    <button onclick="disconnectDevice()" style="margin-top: 10px; padding: 8px 16px; background: rgba(255,100,0,0.2); border: 1px solid rgba(255,100,0,0.3); color: #ff6400; border-radius: 6px; cursor: pointer; font-weight: 700;">
+                        ❌ Desconectar
+                    </button>
                 </div>
             </div>
         </div>
@@ -683,6 +730,7 @@
         const statusText = document.getElementById('status-text');
         const mensagemCadastro = document.getElementById('mensagemCadastro');
         const bluetoothButton = document.getElementById('bluetoothButton');
+        const disconnectButton = document.getElementById('disconnectButton');
         const bluetoothModal = document.getElementById('bluetoothModal');
         const deviceList = document.getElementById('deviceList');
         const scanButton = document.getElementById('scanButton');
@@ -726,9 +774,49 @@
             if (connectedDevice) {
                 bluetoothButton.classList.add('connected');
                 bluetoothButton.title = `Conectado: ${connectedDevice.name}`;
+                disconnectButton.classList.add('show');
+                disconnectButton.title = `Desconectar: ${connectedDevice.name}`;
             } else {
                 bluetoothButton.classList.remove('connected');
                 bluetoothButton.title = 'Conectar via Bluetooth';
+                disconnectButton.classList.remove('show');
+            }
+        }
+
+        async function disconnectDevice() {
+            if (!connectedDevice) {
+                mostrarMensagem('Nenhum dispositivo conectado', 'error');
+                return;
+            }
+
+            try {
+                mostrarMensagem('🔌 Desconectando dispositivo...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/bluetooth/disconnect`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    mostrarMensagem(`✅ Dispositivo desconectado: ${connectedDevice.name}`, 'success');
+                    
+                    // Limpa estado local
+                    connectedDevice = null;
+                    updateBluetoothButton();
+                    connectedInfo.style.display = 'none';
+                    
+                    // Atualiza status do sistema
+                    verificarStatusSistema();
+                    
+                    // Fecha modal se estiver aberto
+                    closeBluetoothModal();
+                    
+                } else {
+                    throw new Error(result.erro || 'Falha na desconexão');
+                }
+            } catch (error) {
+                mostrarMensagem('❌ Erro ao desconectar: ' + error.message, 'error');
             }
         }
 
@@ -919,6 +1007,7 @@
 
         // Event Listeners
         bluetoothButton.addEventListener('click', openBluetoothModal);
+        disconnectButton.addEventListener('click', disconnectDevice);
 
         // Fechar modal clicando fora
         bluetoothModal.addEventListener('click', function(e) {
