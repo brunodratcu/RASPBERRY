@@ -80,7 +80,7 @@ WIFI_SSID = "iPhone A C Dratcu"      # Altere para seu WiFi
 WIFI_PASSWORD = "s7wgr4dobgdse"  # Altere para sua senha
 """
 
-# main.py - Magic Mirror - BLE Sincronizacao com NTP
+# main.py - Magic Mirror - BLE Sincronizacao com NTP e Servidor
 import machine
 import utime
 import ujson
@@ -88,13 +88,18 @@ import ubluetooth
 import gc
 import network
 import ntptime
+import urequests
 from machine import Pin, RTC
 
 print("MAGIC MIRROR - Iniciando...")
 
 # === CONFIGURACOES WIFI ===
-WIFI_SSID = "SUA_REDE_WIFI"
-WIFI_PASSWORD = "SUA_SENHA_WIFI"
+WIFI_SSID = "Bruno Dratcu"
+WIFI_PASSWORD = "deniederror"
+
+# === CONFIGURACOES SERVIDOR ===
+SERVER_IP = "192.168.1.100"  # IP do seu servidor Flask (altere conforme necessario)
+SERVER_PORT = 5000
 
 # === CONFIGURACOES BLE ===
 SERVICE_UUID = ubluetooth.UUID("12345678-1234-5678-9abc-123456789abc")
@@ -164,7 +169,6 @@ def inicializar_horario():
             ntptime.settime()
             
             # Ajusta para horario de Brasilia (UTC-3)
-            # NTP retorna UTC, precisa subtrair 3 horas
             timestamp_utc = utime.time()
             timestamp_brasilia = timestamp_utc - (3 * 3600)  # 3 horas em segundos
             
@@ -188,6 +192,111 @@ def inicializar_horario():
     
     print("Usando horario padrao...")
     rtc.datetime((2024, 12, 25, 2, 16, 30, 0, 0))
+    return False
+
+def detectar_ip_servidor():
+    """Tenta detectar IP do servidor automaticamente"""
+    global SERVER_IP
+    
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        if wlan.isconnected():
+            ip_local = wlan.ifconfig()[0]
+            rede = ".".join(ip_local.split(".")[:-1])
+            
+            print("Tentando detectar servidor na rede " + rede + ".x")
+            
+            ips_teste = [
+                rede + ".1",
+                rede + ".100",
+                rede + ".101",
+                rede + ".10",
+                "192.168.1.100",
+                "192.168.0.100"
+            ]
+            
+            for ip_teste in ips_teste:
+                try:
+                    print("Testando servidor em: " + ip_teste)
+                    url = "http://" + ip_teste + ":" + str(SERVER_PORT) + "/api/sistema/info"
+                    response = urequests.get(url, timeout=3)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if 'eventos_hoje' in data:
+                            SERVER_IP = ip_teste
+                            print("Servidor encontrado em: " + SERVER_IP)
+                            response.close()
+                            return True
+                    response.close()
+                    
+                except:
+                    continue
+            
+            print("Servidor nao encontrado automaticamente")
+            return False
+            
+    except Exception as e:
+        print("Erro na deteccao: " + str(e))
+        return False
+
+def buscar_eventos_servidor():
+    """Busca eventos do dia atual no servidor Flask"""
+    try:
+        if not network.WLAN(network.STA_IF).isconnected():
+            print("WiFi desconectado - nao e possivel buscar eventos")
+            return False
+        
+        print("Buscando eventos do dia no servidor...")
+        
+        url = "http://" + SERVER_IP + ":" + str(SERVER_PORT) + "/api/eventos-hoje"
+        response = urequests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            eventos_json = response.json()
+            response.close()
+            
+            global events
+            events = []
+            
+            for evento in eventos_json:
+                events.append({
+                    'id': evento.get('id'),
+                    'nome': evento.get('nome', 'Sem nome'),
+                    'hora': evento.get('hora', '--:--')
+                })
+            
+            print("Eventos carregados do servidor: " + str(len(events)))
+            for i, evt in enumerate(events):
+                print("  " + str(i+1) + ". " + evt['hora'] + " - " + evt['nome'])
+            
+            return True
+            
+        else:
+            print("Servidor respondeu com status: " + str(response.status_code))
+            response.close()
+            return False
+            
+    except Exception as e:
+        print("Erro ao buscar eventos: " + str(e))
+        return False
+
+def inicializar_eventos():
+    """Inicializa eventos buscando do servidor ou mantendo lista vazia"""
+    print("=== INICIALIZANDO EVENTOS ===")
+    
+    if detectar_ip_servidor():
+        if buscar_eventos_servidor():
+            print("Eventos sincronizados com servidor!")
+            return True
+        else:
+            print("Falha ao buscar eventos do servidor")
+    else:
+        print("Servidor nao encontrado - modo offline")
+    
+    global events
+    events = []
+    print("Iniciando sem eventos - aguardando sincronizacao BLE")
     return False
 
 # === DISPLAY ===
@@ -422,14 +531,33 @@ class BLE:
                 
             elif action == "sync_events":
                 new_events = message.get("events", [])
-                date = message.get("date", "")
+                server_date = message.get("date", "")
                 count = message.get("count", 0)
                 
-                print("Sincronizando " + str(count) + " eventos para " + date)
+                print("Recebidos " + str(count) + " eventos do servidor para " + server_date)
                 
-                events = new_events[:5]
+                # Pega a data atual do RTC (a que esta sendo exibida na tela)
+                t = rtc.datetime()
+                current_year = t[0]
+                current_month = t[1] 
+                current_day = t[2]
                 
-                print(str(len(events)) + " eventos carregados:")
+                # Formata data atual no formato YYYY-MM-DD
+                current_date_str = str(current_year) + "-" + ("0" + str(current_month) if current_month < 10 else str(current_month)) + "-" + ("0" + str(current_day) if current_day < 10 else str(current_day))
+                
+                print("Data na tela: " + current_date_str)
+                
+                # Filtra eventos apenas para a data sendo exibida na tela
+                events = []
+                for event in new_events:
+                    event_date = event.get('data', '')
+                    if event_date == current_date_str:
+                        events.append(event)
+                
+                # Limita a 5 eventos
+                events = events[:5]
+                
+                print("Eventos filtrados para hoje (" + current_date_str + "): " + str(len(events)))
                 for i, event in enumerate(events):
                     nome = event.get('nome', 'Sem nome')
                     hora = event.get('hora', '--:--')
@@ -456,46 +584,39 @@ def update_display():
         h, m, s = t[4], t[5], t[6]
         d, mo, y = t[2], t[1], t[0]
         
-        # Posicoes do relogio
         pos_h = 80
         pos_m = 200
         pos_s = 320
         
-        # Atualiza horas
         if h != last_time['h']:
             fill_rect(pos_h, 80, 80, 40, BLACK)
             h_str = "0" + str(h) if h < 10 else str(h)
             draw_text(pos_h, 80, h_str, WHITE, 4)
             last_time['h'] = h
         
-        # Atualiza minutos
         if m != last_time['m']:
             fill_rect(pos_m, 80, 80, 40, BLACK)
             m_str = "0" + str(m) if m < 10 else str(m)
             draw_text(pos_m, 80, m_str, WHITE, 4)
             last_time['m'] = m
         
-        # Atualiza segundos
         if s != last_time['s']:
             fill_rect(pos_s, 80, 80, 40, BLACK)
             s_str = "0" + str(s) if s < 10 else str(s)
             draw_text(pos_s, 80, s_str, WHITE, 4)
             last_time['s'] = s
         
-        # Atualiza data
         if d != last_date['d'] or mo != last_date['m'] or y != last_date['y']:
             fill_rect(120, 140, 240, 25, BLACK)
             date_str = format_date(d, mo, y)
             draw_centered(140, date_str, WHITE, 2)
             last_date = {'d': d, 'm': mo, 'y': y}
         
-        # Atualiza status BLE
         if ble_connected != last_ble:
             fill_rect(10, 10, 50, 20, BLACK)
             draw_text(10, 10, "BLE", GREEN if ble_connected else RED, 2)
             last_ble = ble_connected
         
-        # Monta linha de eventos
         eventos_str = ""
         if events:
             for i, evt in enumerate(events):
@@ -542,7 +663,6 @@ def update_display():
             else:
                 draw_centered(200, "SEM EVENTOS HOJE", WHITE, 2)
                 draw_centered(225, "ADICIONE VIA APP", CYAN, 2)
-                print("Nenhum evento")
             
             last_event_line = eventos_str
     
@@ -590,7 +710,11 @@ print("Tela inicial...")
 fill_rect(0, 0, 480, 320, BLACK)
 draw_centered(100, "BEM-VINDO", WHITE, 4)
 draw_centered(150, "INICIALIZANDO...", CYAN, 2)
-utime.sleep(3)
+utime.sleep(2)
+
+print("Inicializando eventos...")
+inicializar_eventos()
+utime.sleep(1)
 
 print("Iniciando BLE...")
 ble_handler = BLE()
@@ -648,4 +772,3 @@ while True:
             pass
 
 print("Finalizado")
-

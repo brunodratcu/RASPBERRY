@@ -59,6 +59,15 @@ def init_db():
         )
     ''')
     
+    # Verifica se a tabela pico_devices existe e tem as colunas corretas
+    cursor.execute("PRAGMA table_info(pico_devices)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if 'device_id' not in columns:
+        # Se não tem a coluna device_id, recria a tabela
+        cursor.execute('DROP TABLE IF EXISTS pico_devices')
+        logger.info("Recriando tabela pico_devices com estrutura correta")
+    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pico_devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +83,7 @@ def init_db():
     
     conn.commit()
     conn.close()
-    logger.info("Banco de dados inicializado")
+    logger.info("Banco de dados inicializado com estrutura correta")
 
 # FUNÇÕES BLE PUSH
 async def scan_magic_mirrors():
