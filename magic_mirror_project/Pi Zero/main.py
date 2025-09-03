@@ -447,6 +447,41 @@ def format_date(d, m, y):
     m_str = "0" + str(m) if m < 10 else str(m)
     return d_str + "/" + m_str + "/" + str(y)
 
+def hora_para_minutos(hora_str):
+    """Converte hora no formato HH:MM para minutos desde meia-noite"""
+    try:
+        h, m = hora_str.split(":")
+        return int(h) * 60 + int(m)
+    except:
+        return 9999  # Valor alto para eventos com hora inválida ficarem no final
+
+def ordenar_eventos_por_horario():
+    """Ordena eventos por horário (mais próximo primeiro)"""
+    global events
+    
+    # Pega horário atual
+    t = rtc.datetime()
+    hora_atual = t[4] * 60 + t[5]  # Converte para minutos
+    
+    # Ordena eventos por proximidade com horário atual
+    eventos_ordenados = []
+    
+    for evento in events:
+        hora_evento = hora_para_minutos(evento.get('hora', ''))
+        diferenca = hora_evento - hora_atual
+        
+        # Se o evento já passou hoje, considera para amanhã (adiciona 24h)
+        if diferenca < 0:
+            diferenca += 24 * 60
+            
+        eventos_ordenados.append((diferenca, evento))
+    
+    # Ordena por diferença de tempo (mais próximo primeiro)
+    eventos_ordenados.sort(key=lambda x: x[0])
+    
+    # Atualiza lista global mantendo apenas os eventos ordenados
+    events = [evento for _, evento in eventos_ordenados]
+
 # === BLE ===
 class BLE:
     def __init__(self):
@@ -554,10 +589,13 @@ class BLE:
                     if event_date == current_date_str:
                         events.append(event)
                 
+                # Ordena eventos por horário
+                ordenar_eventos_por_horario()
+                
                 # Limita a 5 eventos
                 events = events[:5]
                 
-                print("Eventos filtrados para hoje (" + current_date_str + "): " + str(len(events)))
+                print("Eventos filtrados e ordenados para hoje (" + current_date_str + "): " + str(len(events)))
                 for i, event in enumerate(events):
                     nome = event.get('nome', 'Sem nome')
                     hora = event.get('hora', '--:--')
@@ -569,12 +607,12 @@ class BLE:
 # === CONTROLES ===
 last_time = {'h': None, 'm': None, 's': None}
 last_date = {'d': None, 'm': None, 'y': None}
-last_event_line = ""
+last_events_display = []
 last_ble = None
 last_btn = 1
 
 def update_display():
-    global last_time, last_date, last_event_line, last_ble
+    global last_time, last_date, last_events_display, last_ble
     
     if not display_on: 
         return
@@ -584,93 +622,105 @@ def update_display():
         h, m, s = t[4], t[5], t[6]
         d, mo, y = t[2], t[1], t[0]
         
+        # Posições do relógio
         pos_h = 80
         pos_m = 200
         pos_s = 320
         
+        # Atualiza horas se mudou
         if h != last_time['h']:
             fill_rect(pos_h, 80, 80, 40, BLACK)
             h_str = "0" + str(h) if h < 10 else str(h)
             draw_text(pos_h, 80, h_str, WHITE, 4)
             last_time['h'] = h
         
+        # Atualiza minutos se mudou
         if m != last_time['m']:
             fill_rect(pos_m, 80, 80, 40, BLACK)
             m_str = "0" + str(m) if m < 10 else str(m)
             draw_text(pos_m, 80, m_str, WHITE, 4)
             last_time['m'] = m
+            
+            # Reordena eventos a cada mudança de minuto
+            ordenar_eventos_por_horario()
         
+        # Atualiza segundos se mudou
         if s != last_time['s']:
             fill_rect(pos_s, 80, 80, 40, BLACK)
             s_str = "0" + str(s) if s < 10 else str(s)
             draw_text(pos_s, 80, s_str, WHITE, 4)
             last_time['s'] = s
         
+        # Atualiza data se mudou
         if d != last_date['d'] or mo != last_date['m'] or y != last_date['y']:
             fill_rect(120, 140, 240, 25, BLACK)
             date_str = format_date(d, mo, y)
             draw_centered(140, date_str, WHITE, 2)
             last_date = {'d': d, 'm': mo, 'y': y}
         
+        # Atualiza status BLE se mudou
         if ble_connected != last_ble:
             fill_rect(10, 10, 50, 20, BLACK)
             draw_text(10, 10, "BLE", GREEN if ble_connected else RED, 2)
             last_ble = ble_connected
         
-        eventos_str = ""
-        if events:
-            for i, evt in enumerate(events):
-                if i >= 3:
-                    break
-                    
-                nome = evt.get('nome', '')
-                hora = evt.get('hora', '')
-                
-                if nome and hora:
-                    if i > 0:
-                        eventos_str += " | "
-                    eventos_str += hora + " " + nome
+        # Verifica se lista de eventos mudou
+        eventos_atuais = []
+        for evt in events[:4]:  # Máximo 4 eventos para caber na tela
+            eventos_atuais.append({
+                'nome': evt.get('nome', ''),
+                'hora': evt.get('hora', '')
+            })
         
-        if eventos_str != last_event_line:
-            fill_rect(10, 180, 460, 100, BLACK)
+        # Só redesenha se a lista mudou
+        if eventos_atuais != last_events_display:
+            # Limpa área dos eventos
+            fill_rect(10, 180, 460, 130, BLACK)
             
-            if eventos_str:
-                draw_centered(185, "EVENTOS DE HOJE", CYAN, 2)
+            if eventos_atuais:
+                # Título
+                draw_centered(185, "PROXIMOS EVENTOS", CYAN, 2)
                 
-                if len(eventos_str) <= 50:
-                    draw_centered(210, eventos_str, WHITE, 2)
-                else:
-                    parte1 = eventos_str[:50]
-                    if '|' in parte1:
-                        corte = parte1.rfind('|')
-                        if corte > 30:
-                            parte1 = eventos_str[:corte].strip()
-                            parte2 = eventos_str[corte+1:].strip()
-                        else:
-                            parte1 = eventos_str[:50]
-                            parte2 = eventos_str[50:]
-                    else:
-                        parte1 = eventos_str[:50]
-                        parte2 = eventos_str[50:]
+                # Lista de eventos (máximo 4 para caber na tela)
+                y_inicial = 210
+                altura_linha = 22
+                
+                for i, evt in enumerate(eventos_atuais):
+                    if i >= 4:  # Limita a 4 eventos
+                        break
+                        
+                    nome = evt['nome']
+                    hora = evt['hora']
                     
-                    draw_centered(205, parte1, WHITE, 1)
-                    if len(parte2) > 0 and len(parte2) <= 50:
-                        draw_centered(225, parte2, WHITE, 1)
-                    elif len(parte2) > 50:
-                        draw_centered(225, parte2[:50] + "...", WHITE, 1)
+                    if nome and hora:
+                        y_pos = y_inicial + (i * altura_linha)
+                        
+                        # Trunca nome se muito longo
+                        max_chars = 35  # Máximo de caracteres por linha
+                        nome_display = nome[:max_chars] + "..." if len(nome) > max_chars else nome
+                        
+                        # Monta texto da linha: HORA - NOME
+                        linha_texto = hora + " - " + nome_display
+                        
+                        # Desenha linha do evento
+                        draw_text(15, y_pos, linha_texto, WHITE, 1)
+                        
+                        print("Evento " + str(i+1) + ": " + linha_texto)
                 
-                print("Eventos exibidos: " + eventos_str)
+                print("Total de eventos exibidos: " + str(min(len(eventos_atuais), 4)))
+                
             else:
-                draw_centered(200, "SEM EVENTOS HOJE", WHITE, 2)
-                draw_centered(225, "ADICIONE VIA APP", CYAN, 2)
+                # Sem eventos
+                draw_centered(205, "SEM EVENTOS HOJE", WHITE, 2)
+                draw_centered(230, "ADICIONE VIA APP", CYAN, 2)
             
-            last_event_line = eventos_str
+            last_events_display = eventos_atuais[:]  # Copia a lista
     
     except Exception as e:
         print("Erro update_display: " + str(e))
 
 def check_button():
-    global last_btn, display_on, last_time, last_date, last_event_line, last_ble
+    global last_btn, display_on, last_time, last_date, last_events_display, last_ble
     
     try:
         b = btn.value()
@@ -686,7 +736,7 @@ def check_button():
                 
                 last_time = {'h': None, 'm': None, 's': None}
                 last_date = {'d': None, 'm': None, 'y': None}
-                last_event_line = ""
+                last_events_display = []
                 last_ble = None
             else:
                 fill_rect(0, 0, 480, 320, BLACK)
@@ -766,10 +816,9 @@ while True:
                 
                 last_time = {'h': None, 'm': None, 's': None}
                 last_date = {'d': None, 'm': None, 'y': None}
-                last_event_line = ""
+                last_events_display = []
                 last_ble = None
         except:
             pass
 
 print("Finalizado")
-
