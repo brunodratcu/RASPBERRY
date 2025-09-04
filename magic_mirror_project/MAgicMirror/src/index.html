@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Mirror</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background: linear-gradient(180deg, #020203 0%, #071018 100%);
+            color: #e6fbff;
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: linear-gradient(180deg, rgba(5,8,12,0.8), rgba(8,12,18,0.7));
+            border-radius: 14px;
+            padding: 40px;
+            box-shadow: 0 10px 60px rgba(0,0,0,0.6);
+            border: 1px solid rgba(0,240,255,0.12);
+            backdrop-filter: blur(10px);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .header h1 {
+            color: #00e6ff;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            color: #9fffdc;
+            font-size: 1.1em;
+            opacity: 0.8;
+        }
+
+        .bluetooth-controls {
+            position: absolute;
+            top: 0;
+            right: 0;
+            display: flex;
+            gap: 10px;
+        }
+
+        .bluetooth-button {
+            background: linear-gradient(135deg, rgba(0,123,255,0.2) 0%, rgba(0,100,255,0.1) 100%);
+            border: 1px solid rgba(0,123,255,0.3);
+            color: #007bff;
+            padding: 12px 16px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 24px;
+            transition: all 0.3s ease;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .bluetooth-button:hover {
+            background: linear-gradient(135deg, rgba(0,123,255,0.3) 0%, rgba(0,100,255,0.2) 100%);
+            border-color: #007bff;
+            box-shadow: 0 5px 20px rgba(0,123,255,0.3);
+            transform: scale(1.05);
+        }
+
+        .bluetooth-button.connected {
+            background: linear-gradient(135deg, rgba(0,255,0,0.2) 0%, rgba(0,200,0,0.1) 100%);
+            border-color: rgba(0,255,0,0.3);
+            color: #00ff00;
+        }
+
+        .disconnect-button {
+            background: linear-gradient(135deg, rgba(255,100,0,0.2) 0%, rgba(255,80,0,0.1) 100%);
+            border: 1px solid rgba(255,100,0,0.3);
+            color: #ff6400;
+            padding: 12px 16px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            transition: all 0.3s ease;
+            width: 50px;
+            height: 50px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .disconnect-button:hover {
+            background: linear-gradient(135deg, rgba(255,100,0,0.3) 0%, rgba(255,80,0,0.2) 100%);
+            border-color: #ff6400;
+            box-shadow: 0 5px 20px rgba(255,100,0,0.3);
+            transform: scale(1.05);
+        }
+
+        .disconnect-button.show {
+            display: flex;
+        }
+
+        .status {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: center;
+            border: 1px solid rgba(0,240,255,0.15);
+        }
+
+        .status.online {
+            background: rgba(0,240,100,0.1);
+            color: #00ff88;
+            border-color: rgba(0,240,100,0.3);
+        }
+
+        .status.offline {
+            background: rgba(240,0,0,0.1);
+            color: #ff6b6b;
+            border-color: rgba(240,0,0,0.3);
+        }
+
+        .bluetooth-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        .bluetooth-modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(180deg, rgba(5,8,12,0.95), rgba(8,12,18,0.9));
+            border-radius: 14px;
+            padding: 30px;
+            width: 90%;
+            max-width: 500px;
+            border: 1px solid rgba(0,240,255,0.12);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(0,240,255,0.1);
+        }
+
+        .modal-header h3 {
+            color: #00e6ff;
+            font-size: 1.5em;
+            font-weight: 700;
+        }
+
+        .close-modal {
+            background: none;
+            border: none;
+            color: #ff6b6b;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .close-modal:hover {
+            background: rgba(255,107,107,0.1);
+            transform: scale(1.1);
+        }
+
+        .bluetooth-scan-button {
+            width: 100%;
+            background: linear-gradient(135deg, rgba(0,123,255,0.2) 0%, rgba(0,100,255,0.1) 100%);
+            border: 1px solid rgba(0,123,255,0.3);
+            color: #007bff;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .bluetooth-scan-button:hover {
+            background: linear-gradient(135deg, rgba(0,123,255,0.3) 0%, rgba(0,100,255,0.2) 100%);
+            border-color: #007bff;
+            box-shadow: 0 5px 20px rgba(0,123,255,0.2);
+        }
+
+        .bluetooth-scan-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .device-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .device-item {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(0,240,255,0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .device-item:hover {
+            background: rgba(0,240,255,0.05);
+            border-color: rgba(0,240,255,0.3);
+        }
+
+        .device-info {
+            flex-grow: 1;
+        }
+
+        .device-name {
+            font-weight: 700;
+            color: #00dfff;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .device-address {
+            color: #9fffdc;
+            opacity: 0.8;
+            font-size: 0.9em;
+        }
+
+        .device-signal {
+            color: #ffb400;
+            font-size: 0.8em;
+            margin-top: 3px;
+        }
+
+        .connect-button {
+            background: linear-gradient(135deg, rgba(0,255,0,0.2) 0%, rgba(0,200,0,0.1) 100%);
+            border: 1px solid rgba(0,255,0,0.3);
+            color: #00ff00;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+
+        .connect-button:hover {
+            background: linear-gradient(135deg, rgba(0,255,0,0.3) 0%, rgba(0,200,0,0.2) 100%);
+            border-color: #00ff00;
+            box-shadow: 0 3px 15px rgba(0,255,0,0.2);
+        }
+
+        .connect-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .connected-device {
+            background: rgba(0,255,0,0.1);
+            border-color: rgba(0,255,0,0.3);
+        }
+
+        .scanning-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(0,123,255,0.2);
+            border-top: 2px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        .no-devices {
+            text-align: center;
+            padding: 30px;
+            color: rgba(230, 251, 255, 0.6);
+        }
+
+        .form-section {
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(0,240,255,0.08);
+        }
+
+        .form-section h2 {
+            color: #00e6ff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+        }
+
+        .form-section h2::before {
+            content: "📅";
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #e6fbff;
+            font-weight: 600;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid rgba(0,240,255,0.2);
+            border-radius: 8px;
+            font-size: 16px;
+            background: rgba(0,0,0,0.4);
+            color: #e6fbff;
+            font-family: 'Orbitron', sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #00e6ff;
+            box-shadow: 0 0 0 3px rgba(0, 230, 255, 0.1);
+            background: rgba(0,0,0,0.6);
+        }
+
+        .form-group input::placeholder {
+            color: rgba(230, 251, 255, 0.5);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, rgba(0,240,255,0.2) 0%, rgba(0,230,255,0.1) 100%);
+            color: #00dfff;
+            border: 1px solid rgba(0,240,255,0.3);
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, rgba(0,240,255,0.3) 0%, rgba(0,230,255,0.2) 100%);
+            border-color: #00e6ff;
+            box-shadow: 0 5px 20px rgba(0,230,255,0.2);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .eventos-hoje {
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            padding: 30px;
+            border: 1px solid rgba(0,240,255,0.08);
+        }
+
+        .eventos-hoje h2 {
+            color: #00e6ff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+        }
+
+        .eventos-hoje h2::before {
+            content: "📋";
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
+
+        .evento-item {
+            background: rgba(0,240,255,0.05);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(0,240,255,0.15);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .evento-item:hover {
+            background: rgba(0,240,255,0.08);
+            border-color: rgba(0,240,255,0.25);
+        }
+
+        .evento-info {
+            flex-grow: 1;
+        }
+
+        .evento-hora {
+            font-weight: 700;
+            color: #00dfff;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .evento-nome {
+            color: #e6fbff;
+            opacity: 0.9;
+        }
+
+        .evento-status {
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .evento-status.sincronizado {
+            background: rgba(0,240,100,0.2);
+            color: #00ff88;
+            border: 1px solid rgba(0,240,100,0.3);
+        }
+
+        .evento-status.pendente {
+            background: rgba(255,180,0,0.2);
+            color: #ffb400;
+            border: 1px solid rgba(255,180,0,0.3);
+        }
+
+        .evento-status.completo {
+            background: rgba(100,100,100,0.2);
+            color: #888888;
+            border: 1px solid rgba(100,100,100,0.3);
+        }
+
+        .btn-delete {
+            background: transparent;
+            color: #00bfff;
+            border: 1px solid rgba(0,191,255,0.3);
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+
+        .btn-delete:hover {
+            background: rgba(0,191,255,0.1);
+            border-color: #00bfff;
+        }
+
+        .btn-reset {
+            margin-top: 20px;
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(0,240,255,0.2);
+            background: transparent;
+            color: #00bfff;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: 'Orbitron', sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        .btn-reset:hover {
+            background: rgba(0,240,255,0.1);
+            border-color: #00bfff;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .message.success {
+            background: rgba(0,240,100,0.1);
+            color: #00ff88;
+            border: 1px solid rgba(0,240,100,0.3);
+        }
+
+        .message.error {
+            background: rgba(240,0,0,0.1);
+            color: #ff6b6b;
+            border: 1px solid rgba(240,0,0,0.3);
+        }
+
+        .message.info {
+            background: rgba(0,123,255,0.1);
+            color: #007bff;
+            border: 1px solid rgba(0,123,255,0.3);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #00e6ff;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(0,230,255,0.2);
+            border-top: 3px solid #00e6ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-eventos {
+            text-align: center;
+            padding: 40px;
+            color: rgba(230, 251, 255, 0.6);
+        }
+
+        .no-eventos::before {
+            content: "📝";
+            font-size: 3em;
+            display: block;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .form-section, .eventos-hoje {
+                padding: 20px;
+            }
+
+            .evento-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .evento-status, .btn-delete {
+                margin-top: 10px;
+            }
+
+            .bluetooth-controls {
+                position: static;
+                margin-top: 15px;
+                justify-content: center;
+            }
+
+            .bluetooth-modal-content {
+                width: 95%;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Minha agenda</h1>
+            <p>Sistema de Eventos via Bluetooth</p>
+            <div class="bluetooth-controls">
+                <button id="bluetoothButton" class="bluetooth-button" title="Conectar via Bluetooth">
+                    🔵
+                </button>
+                <button id="disconnectButton" class="disconnect-button" title="Desconectar dispositivo">
+                    ❌
+                </button>
+            </div>
+        </div>
+
+        <!-- Modal Bluetooth -->
+        <div id="bluetoothModal" class="bluetooth-modal">
+            <div class="bluetooth-modal-content">
+                <div class="modal-header">
+                    <h3>🔵 Dispositivos Bluetooth</h3>
+                    <button class="close-modal" onclick="closeBluetoothModal()">×</button>
+                </div>
+                
+                <button id="scanButton" class="bluetooth-scan-button" onclick="scanBluetoothDevices()">
+                    📡 Escanear Dispositivos
+                </button>
+                
+                <div id="deviceList" class="device-list">
+                    <div class="no-devices">
+                        Clique em "Escanear Dispositivos" para buscar dispositivos Bluetooth próximos
+                    </div>
+                </div>
+                
+                <div id="connectedInfo" style="margin-top: 20px; padding: 15px; background: rgba(0,255,0,0.1); border: 1px solid rgba(0,255,0,0.3); border-radius: 8px; display: none;">
+                    <strong style="color: #00ff00;">✅ Conectado:</strong>
+                    <div id="connectedDeviceName" style="color: #e6fbff; margin-top: 5px;"></div>
+                    <button onclick="disconnectDevice()" style="margin-top: 10px; padding: 8px 16px; background: rgba(255,100,0,0.2); border: 1px solid rgba(255,100,0,0.3); color: #ff6400; border-radius: 6px; cursor: pointer; font-weight: 700;">
+                        ❌ Desconectar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status do Sistema -->
+        <div id="system-status" class="status offline">
+            <strong>Status:</strong> <span id="status-text">Verificando conexão...</span>
+        </div>
+
+        <!-- Mensagens -->
+        <div id="message-container"></div>
+
+        <!-- Loading -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Processando...</p>
+        </div>
+
+        <!-- Formulário de Cadastro -->
+        <div class="form-section">
+            <h2>Cadastrar Novo Evento</h2>
+            <form id="event-form">
+                <div class="form-group">
+                    <label for="nome">Nome do Evento:</label>
+                    <input type="text" id="nome" name="nome" required 
+                           placeholder="Ex: Reunião de equipe, Consulta médica...">
+                </div>
+                
+                <div class="form-group">
+                    <label for="data">Data:</label>
+                    <input type="date" id="data" name="data" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="hora">Horário:</label>
+                    <input type="time" id="hora" name="hora" required>
+                </div>
+                
+                <button type="submit" class="btn" id="btn-submit">
+                    📅 Cadastrar Evento
+                </button>
+                <p id="mensagemCadastro" style="color: #9fffdc; min-height: 20px; margin-top: 10px; text-align: center;"></p>
+            </form>
+        </div>
+
+        <!-- Lista de Eventos de Hoje -->
+        <div class="eventos-hoje">
+            <h2>Eventos de Hoje</h2>
+            <div id="eventos-lista">
+                <div class="no-eventos">
+                    Carregando eventos...
+                </div>
+            </div>
+            <button id="resetButton" class="btn-reset" onclick="limparHistorico()">
+                🧨 Limpar Histórico de Eventos
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Configuração da API
+        const API_BASE = window.location.origin;
+        
+        // Variáveis globais Bluetooth
+        let connectedDevice = null;
+        let isScanning = false;
+        let discoveredDevices = [];
+        
+        // Elementos DOM
+        const form = document.getElementById('event-form');
+        const messageContainer = document.getElementById('message-container');
+        const loading = document.getElementById('loading');
+        const btnSubmit = document.getElementById('btn-submit');
+        const eventosLista = document.getElementById('eventos-lista');
+        const systemStatus = document.getElementById('system-status');
+        const statusText = document.getElementById('status-text');
+        const mensagemCadastro = document.getElementById('mensagemCadastro');
+        const bluetoothButton = document.getElementById('bluetoothButton');
+        const disconnectButton = document.getElementById('disconnectButton');
+        const bluetoothModal = document.getElementById('bluetoothModal');
+        const deviceList = document.getElementById('deviceList');
+        const scanButton = document.getElementById('scanButton');
+        const connectedInfo = document.getElementById('connectedInfo');
+        const connectedDeviceName = document.getElementById('connectedDeviceName');
+        
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', function() {
+            // Define data padrão como hoje
+            const hoje = new Date().toISOString().split('T')[0];
+            document.getElementById('data').value = hoje;
+            
+            // Auto-foco no campo nome
+            document.getElementById('nome').focus();
+            
+            // Carrega dados iniciais
+            verificarStatusSistema();
+            carregarEventosHoje();
+            checkBluetoothConnection();
+            
+            // Auto-refresh a cada 30 segundos
+            setInterval(carregarEventosHoje, 30000);
+            setInterval(verificarStatusSistema, 60000);
+            setInterval(checkBluetoothConnection, 10000);
+        });
+
+        // Funcões Bluetooth
+        function openBluetoothModal() {
+            bluetoothModal.style.display = 'block';
+            updateDeviceList();
+        }
+
+        function closeBluetoothModal() {
+            bluetoothModal.style.display = 'none';
+            if (isScanning) {
+                stopBluetoothScan();
+            }
+        }
+
+        function updateBluetoothButton() {
+            if (connectedDevice) {
+                bluetoothButton.classList.add('connected');
+                bluetoothButton.title = `Conectado: ${connectedDevice.name}`;
+                disconnectButton.classList.add('show');
+                disconnectButton.title = `Desconectar: ${connectedDevice.name}`;
+            } else {
+                bluetoothButton.classList.remove('connected');
+                bluetoothButton.title = 'Conectar via Bluetooth';
+                disconnectButton.classList.remove('show');
+            }
+        }
+
+        async function disconnectDevice() {
+            if (!connectedDevice) {
+                mostrarMensagem('Nenhum dispositivo conectado', 'error');
+                return;
+            }
+
+            try {
+                mostrarMensagem('🔌 Desconectando dispositivo...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/bluetooth/disconnect`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    mostrarMensagem(`✅ Dispositivo desconectado: ${connectedDevice.name}`, 'success');
+                    
+                    // Limpa estado local
+                    connectedDevice = null;
+                    updateBluetoothButton();
+                    connectedInfo.style.display = 'none';
+                    
+                    // Atualiza status do sistema
+                    verificarStatusSistema();
+                    
+                    // Fecha modal se estiver aberto
+                    closeBluetoothModal();
+                    
+                } else {
+                    throw new Error(result.erro || 'Falha na desconexão');
+                }
+            } catch (error) {
+                mostrarMensagem('❌ Erro ao desconectar: ' + error.message, 'error');
+            }
+        }
+
+        async function scanBluetoothDevices() {
+            if (isScanning) {
+                stopBluetoothScan();
+                return;
+            }
+
+            isScanning = true;
+            scanButton.innerHTML = '<div class="scanning-spinner"></div>🛑 Parar Escaneamento';
+            scanButton.disabled = false;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/bluetooth/scan`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    // Inicia polling para dispositivos descobertos
+                    pollDiscoveredDevices();
+                } else {
+                    throw new Error('Falha ao iniciar escaneamento');
+                }
+            } catch (error) {
+                mostrarMensagem('Erro ao escanear dispositivos Bluetooth: ' + error.message, 'error');
+                stopBluetoothScan();
+            }
+        }
+
+        function stopBluetoothScan() {
+            isScanning = false;
+            scanButton.innerHTML = '📡 Escanear Dispositivos';
+            scanButton.disabled = false;
+
+            fetch(`${API_BASE}/api/bluetooth/scan/stop`, {
+                method: 'POST'
+            }).catch(error => {
+                console.error('Erro ao parar escaneamento:', error);
+            });
+        }
+
+        async function pollDiscoveredDevices() {
+            if (!isScanning) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/bluetooth/devices`);
+                const devices = await response.json();
+                
+                discoveredDevices = devices;
+                updateDeviceList();
+                
+                if (isScanning) {
+                    setTimeout(pollDiscoveredDevices, 2000);
+                }
+            } catch (error) {
+                console.error('Erro ao buscar dispositivos:', error);
+                if (isScanning) {
+                    setTimeout(pollDiscoveredDevices, 5000);
+                }
+            }
+        }
+
+        function updateDeviceList() {
+            if (discoveredDevices.length === 0) {
+                deviceList.innerHTML = `
+                    <div class="no-devices">
+                        ${isScanning ? 'Escaneando dispositivos...' : 'Nenhum dispositivo encontrado'}
+                    </div>
+                `;
+                return;
+            }
+
+            deviceList.innerHTML = discoveredDevices.map(device => {
+                const isConnected = connectedDevice && connectedDevice.address === device.address;
+                const signalStrength = getSignalStrength(device.rssi);
+                
+                return `
+                    <div class="device-item ${isConnected ? 'connected-device' : ''}">
+                        <div class="device-info">
+                            <div class="device-name">${device.name || 'Dispositivo Desconhecido'}</div>
+                            <div class="device-address">${device.address}</div>
+                            <div class="device-signal">📶 ${signalStrength} (${device.rssi} dBm)</div>
+                        </div>
+                        <button class="connect-button" 
+                                ${isConnected ? 'disabled' : ''} 
+                                onclick="connectToDevice('${device.address}', '${device.name || 'Dispositivo'}')">
+                            ${isConnected ? '✅ Conectado' : '🔗 Conectar'}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function getSignalStrength(rssi) {
+            if (rssi > -50) return 'Excelente';
+            if (rssi > -70) return 'Bom';
+            if (rssi > -85) return 'Regular';
+            return 'Fraco';
+        }
+
+        async function connectToDevice(address, name) {
+            try {
+                mostrarMensagem('🔵 Conectando ao dispositivo BLE...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/bluetooth/connect`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        address: address,
+                        name: name
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    mostrarMensagem(`🔵 Estabelecendo conexão BLE com ${name}...`, 'info');
+                    
+                    // Aguarda um pouco para conexão estabelecer
+                    setTimeout(async () => {
+                        // Verifica se conexão foi estabelecida
+                        const statusResponse = await fetch(`${API_BASE}/api/bluetooth/status`);
+                        const status = await statusResponse.json();
+                        
+                        if (status.connected && status.device) {
+                            connectedDevice = status.device;
+                            updateBluetoothButton();
+                            updateDeviceList();
+                            
+                            connectedInfo.style.display = 'block';
+                            connectedDeviceName.textContent = status.device.name;
+                            
+                            mostrarMensagem(`✅ Conectado com sucesso via BLE: ${status.device.name}`, 'success');
+                            
+                            // Atualiza status do sistema
+                            verificarStatusSistema();
+                            
+                            // Sincroniza eventos automaticamente
+                            setTimeout(sincronizarManual, 2000);
+                        } else {
+                            mostrarMensagem(`❌ Falha na conexão BLE com ${name}`, 'error');
+                        }
+                    }, 3000);
+                    
+                } else {
+                    throw new Error(result.erro || 'Falha na conexão');
+                }
+            } catch (error) {
+                mostrarMensagem('❌ Erro ao conectar: ' + error.message, 'error');
+            }
+        }
+
+        async function checkBluetoothConnection() {
+            try {
+                const response = await fetch(`${API_BASE}/api/bluetooth/status`);
+                const status = await response.json();
+                
+                if (status.connected && status.device) {
+                    if (!connectedDevice || connectedDevice.address !== status.device.address) {
+                        connectedDevice = status.device;
+                        updateBluetoothButton();
+                        
+                        connectedInfo.style.display = 'block';
+                        connectedDeviceName.innerHTML = `
+                            <strong>${status.device.name}</strong><br>
+                            <small>Endereço: ${status.device.address}</small><br>
+                            <small>Status: Conectado via BLE</small>
+                        `;
+                        
+                        console.log('Conexão BLE confirmada:', status.device.name);
+                    }
+                } else {
+                    if (connectedDevice) {
+                        connectedDevice = null;
+                        updateBluetoothButton();
+                        connectedInfo.style.display = 'none';
+                        console.log('Conexão BLE perdida');
+                    }
+                }
+            } catch (error) {
+                // Erro silencioso - problema de conexão com servidor
+                console.error('Erro ao verificar status BLE:', error);
+            }
+        }
+
+        // Event Listeners
+        bluetoothButton.addEventListener('click', openBluetoothModal);
+        disconnectButton.addEventListener('click', disconnectDevice);
+
+        // Fechar modal clicando fora
+        bluetoothModal.addEventListener('click', function(e) {
+            if (e.target === bluetoothModal) {
+                closeBluetoothModal();
+            }
+        });
+        
+        // Verificar status do sistema
+        async function verificarStatusSistema() {
+            try {
+                const response = await fetch(`${API_BASE}/api/sistema/info`);
+                const data = await response.json();
+                
+                if (data.bluetooth_conectado && data.dispositivo_conectado) {
+                    systemStatus.className = 'status online';
+                    statusText.textContent = `🔵 Conectado via BLE: ${data.dispositivo_conectado}`;
+                } else if (data.bluetooth_disponivel) {
+                    systemStatus.className = 'status offline';
+                    statusText.textContent = `🔵 BLE Disponível - Aguardando conexão`;
+                } else {
+                    systemStatus.className = 'status offline';
+                    statusText.textContent = `❌ BLE não disponível`;
+                }
+            } catch (error) {
+                systemStatus.className = 'status offline';
+                statusText.textContent = 'Erro de conexão com o servidor';
+            }
+        }
+        
+        // Mostrar mensagem
+        function mostrarMensagem(texto, tipo = 'success') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${tipo}`;
+            messageDiv.textContent = texto;
+            
+            messageContainer.innerHTML = '';
+            messageContainer.appendChild(messageDiv);
+            
+            // Remove mensagem após 5 segundos
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+        
+        // Toggle loading
+        function toggleLoading(show) {
+            loading.style.display = show ? 'block' : 'none';
+            btnSubmit.disabled = show;
+        }
+        
+        // Submit do formulário
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(form);
+            const eventData = {
+                nome: formData.get('nome'),
+                data: formData.get('data'),
+                hora: formData.get('hora')
+            };
+            
+            toggleLoading(true);
+            mensagemCadastro.textContent = '';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(eventData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    mensagemCadastro.textContent = '✅ Evento cadastrado com sucesso!';
+                    mensagemCadastro.style.color = '#00ff88';
+                    form.reset();
+                    
+                    // Redefine data para hoje e foco no nome
+                    const hoje = new Date().toISOString().split('T')[0];
+                    document.getElementById('data').value = hoje;
+                    document.getElementById('nome').focus();
+                    
+                    // Recarrega lista se for evento de hoje
+                    const hoje_str = new Date().toISOString().split('T')[0];
+                    if (eventData.data === hoje_str) {
+                        setTimeout(carregarEventosHoje, 1000);
+                    }
+                    
+                    // Limpa mensagem após 3 segundos
+                    setTimeout(() => {
+                        mensagemCadastro.textContent = '';
+                    }, 3000);
+                    
+                } else {
+                    mensagemCadastro.textContent = `❌ Erro: ${result.erro || 'Erro desconhecido'}`;
+                    mensagemCadastro.style.color = '#ff6b6b';
+                }
+            } catch (error) {
+                mensagemCadastro.textContent = '❌ Erro de conexão com o servidor';
+                mensagemCadastro.style.color = '#ff6b6b';
+            } finally {
+                toggleLoading(false);
+            }
+        });
+        
+        // Função para verificar status do evento baseado no horário
+        function getEventoStatus(hora, sincronizado) {
+            const agora = new Date();
+            const hoje = agora.toISOString().split('T')[0];
+            
+            // Cria objeto Date para o horário do evento
+            const [horaEvento, minutoEvento] = hora.split(':').map(num => parseInt(num));
+            const eventoTime = new Date();
+            eventoTime.setHours(horaEvento, minutoEvento, 0, 0);
+            
+            // Adiciona 1 minuto ao horário do evento
+            const eventoTimePlus1Min = new Date(eventoTime.getTime() + 60000);
+            
+            // Se passou 1 minuto do horário do evento
+            if (agora >= eventoTimePlus1Min) {
+                return {
+                    class: 'completo',
+                    text: '✅ Completo'
+                };
+            }
+            
+            // Se sincronizado mas ainda não passou do horário
+            if (sincronizado) {
+                return {
+                    class: 'sincronizado',
+                    text: '✅ Enviado'
+                };
+            }
+            
+            // Se não sincronizado
+            return {
+                class: 'pendente',
+                text: '📡 Aguardando'
+            };
+        }
+
+        // Carregar eventos de hoje
+        async function carregarEventosHoje() {
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos-hoje`);
+                const eventos = await response.json();
+                
+                if (eventos.length === 0) {
+                    eventosLista.innerHTML = `
+                        <div class="no-eventos">
+                            Nenhum evento cadastrado para hoje
+                        </div>
+                    `;
+                } else {
+                    eventosLista.innerHTML = eventos.map(evento => {
+                        const status = getEventoStatus(evento.hora, evento.sincronizado);
+                        
+                        return `
+                            <div class="evento-item">
+                                <div class="evento-info">
+                                    <div class="evento-hora">${evento.hora}</div>
+                                    <div class="evento-nome">${evento.nome}</div>
+                                </div>
+                                <div style="display: flex; align-items: center;">
+                                    <span class="evento-status ${status.class}">
+                                        ${status.text}
+                                    </span>
+                                    <button class="btn-delete" onclick="deletarEvento(${evento.id})">
+                                        ✖ Excluir
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            } catch (error) {
+                eventosLista.innerHTML = `
+                    <div class="no-eventos">
+                        Erro ao carregar eventos
+                    </div>
+                `;
+            }
+        }
+        
+        // Deletar evento individual
+        async function deletarEvento(id) {
+            if (!confirm('Tem certeza que deseja excluir este evento?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    mostrarMensagem('✅ Evento excluído com sucesso!', 'success');
+                    carregarEventosHoje();
+                } else {
+                    mostrarMensagem('❌ Erro ao excluir evento', 'error');
+                }
+            } catch (error) {
+                mostrarMensagem('❌ Erro de conexão com o servidor', 'error');
+            }
+        }
+        
+        // Limpar histórico completo
+        async function limparHistorico() {
+            if (!confirm('Tem certeza que deseja apagar TODOS os eventos?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/eventos`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    mostrarMensagem('✅ Histórico de eventos limpo com sucesso!', 'success');
+                    carregarEventosHoje();
+                } else {
+                    mostrarMensagem('❌ Erro ao limpar histórico', 'error');
+                }
+            } catch (error) {
+                mostrarMensagem('❌ Erro de conexão com o servidor', 'error');
+            }
+        }
+
+        // Sincronização manual
+        async function sincronizarManual() {
+            try {
+                const response = await fetch(`${API_BASE}/api/sincronizar`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    mostrarMensagem(result.mensagem, 'success');
+                    setTimeout(carregarEventosHoje, 2000);
+                } else {
+                    mostrarMensagem('Erro na sincronização: ' + (result.erro || 'Erro desconhecido'), 'error');
+                }
+            } catch (error) {
+                mostrarMensagem('Erro de conexão com o servidor', 'error');
+            }
+        }
+    </script>
+</body>
+</html>
