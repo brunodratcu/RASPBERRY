@@ -2,7 +2,7 @@
 """
 Magic Mirror - Main Application MQTT Only
 Raspberry Pi Pico 2W - Sistema Simplificado
-Versão 3.0 - MQTT Only + Backend Registration
+Versão 3.0.1 - MQTT Only + Backend Registration - CORRIGIDO
 """
 
 import machine
@@ -25,6 +25,14 @@ try:
 except ImportError:
     MQTT_AVAILABLE = False
     log('ERROR', 'MQTT não disponível - sistema não funcionará')
+
+# Importar módulos de fonte
+try:
+    from font import get_char_bitmap, get_text_width, get_text_height, split_text_to_fit, center_text_x, normalize_text
+    FONT_AVAILABLE = True
+except ImportError:
+    FONT_AVAILABLE = False
+    log('WARN', 'Fonte não disponível - usando fallbacks')
 
 # ==================== CLASSE DE GERENCIAMENTO DE TEMPO ====================
 class TimeManager:
@@ -193,7 +201,11 @@ class DisplayManager:
     
     def draw_char_bitmap(self, char, x, y, color, scale=1):
         """Desenhar um caractere usando bitmap"""
-        bitmap = get_char_bitmap(char)
+        if FONT_AVAILABLE:
+            bitmap = get_char_bitmap(char)
+        else:
+            # Fallback simples - apenas um quadrado
+            bitmap = [0xFF, 0x81, 0x81, 0x81, 0x81, 0x81, 0x81, 0xFF]
         
         for row in range(8):
             for col in range(8):
@@ -212,7 +224,10 @@ class DisplayManager:
             color = get_color('PRIMARY_TEXT')
         
         # Normalizar texto (remover caracteres não suportados)
-        text = normalize_text(text)
+        if FONT_AVAILABLE:
+            text = normalize_text(text)
+        else:
+            text = safe_normalize_text(text)
         
         current_x = x
         char_width = 8 * size
@@ -231,7 +246,10 @@ class DisplayManager:
     
     def draw_text_centered(self, text, y, color=None, size=1):
         """Desenhar texto centralizado horizontalmente"""
-        x = center_text_x(text, DISPLAY_WIDTH, size)
+        if FONT_AVAILABLE:
+            x = center_text_x(text, DISPLAY_WIDTH, size)
+        else:
+            x = safe_center_text_x(text, DISPLAY_WIDTH, size)
         self.draw_text(text, x, y, color, size)
     
     def draw_text_multiline(self, text, x, y, max_width, color=None, size=1, line_spacing=2):
@@ -239,9 +257,14 @@ class DisplayManager:
         if color is None:
             color = get_color('PRIMARY_TEXT')
         
-        lines = split_text_to_fit(text, max_width, size)
+        if FONT_AVAILABLE:
+            lines = split_text_to_fit(text, max_width, size)
+            line_height = get_text_height(size) + line_spacing
+        else:
+            lines = safe_split_text_to_fit(text, max_width, size)
+            line_height = safe_get_text_height(size) + line_spacing
+        
         current_y = y
-        line_height = get_text_height(size) + line_spacing
         
         for line in lines:
             if current_y + line_height > DISPLAY_HEIGHT:
@@ -269,7 +292,7 @@ class DisplayManager:
         
         # Informações do dispositivo
         device_info = get_device_info()
-        desc_lines = split_text_to_fit(device_info['description'], DISPLAY_WIDTH - 20, 2)
+        desc_lines = safe_split_text_to_fit(device_info['description'], DISPLAY_WIDTH - 20, 2)
         y_pos = 130
         
         for line in desc_lines:
@@ -318,7 +341,7 @@ class DisplayManager:
             sub_text = ""
         
         # Cabeçalho centralizado
-        header_lines = split_text_to_fit(main_text, DISPLAY_WIDTH - 20, 2)
+        header_lines = safe_split_text_to_fit(main_text, DISPLAY_WIDTH - 20, 2)
         y_pos = 60
         
         for line in header_lines:
@@ -332,7 +355,7 @@ class DisplayManager:
         
         # Status
         if sub_text:
-            sub_lines = split_text_to_fit(sub_text, DISPLAY_WIDTH - 20, 1)
+            sub_lines = safe_split_text_to_fit(sub_text, DISPLAY_WIDTH - 20, 1)
             y_pos += 50
             for line in sub_lines:
                 self.draw_text_centered(line, y_pos, get_color('SECONDARY_TEXT'), 1)
@@ -437,7 +460,7 @@ class DisplayManager:
             title_width = DISPLAY_WIDTH - title_x - get_layout_position('MARGIN_X')
             
             # Desenhar título com quebra automática
-            title_lines = split_text_to_fit(title, title_width, get_font_size('EVENT_TITLE'))
+            title_lines = safe_split_text_to_fit(title, title_width, get_font_size('EVENT_TITLE'))
             title_y = y_pos
             
             for line in title_lines[:2]:  # Máximo 2 linhas por evento
@@ -495,7 +518,10 @@ class DisplayManager:
         
         # Versão (lado direito)
         version_text = f"{get_text('VERSION')}{FIRMWARE_VERSION}"
-        version_width = get_text_width(version_text, get_font_size('STATUS'))
+        if FONT_AVAILABLE:
+            version_width = get_text_width(version_text, get_font_size('STATUS'))
+        else:
+            version_width = safe_get_text_width(version_text, get_font_size('STATUS'))
         version_x = DISPLAY_WIDTH - version_width - get_layout_position('MARGIN_X')
         self.draw_text(version_text, version_x, y_pos,
                       get_color('SECONDARY_TEXT'), get_font_size('STATUS'))
@@ -515,7 +541,10 @@ class DisplayManager:
         # Última sincronização (lado direito)
         if last_sync:
             sync_text = f"Sync: {last_sync}"
-            sync_width = get_text_width(sync_text, get_font_size('STATUS'))
+            if FONT_AVAILABLE:
+                sync_width = get_text_width(sync_text, get_font_size('STATUS'))
+            else:
+                sync_width = safe_get_text_width(sync_text, get_font_size('STATUS'))
             sync_x = DISPLAY_WIDTH - sync_width - get_layout_position('MARGIN_X')
             self.draw_text(sync_text, sync_x, y_pos,
                           get_color('SECONDARY_TEXT'), get_font_size('STATUS'))

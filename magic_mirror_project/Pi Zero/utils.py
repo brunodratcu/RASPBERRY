@@ -1,4 +1,4 @@
-# utils.py - Utilitários Simplificados Magic Mirror
+# utils.py - Utilitários Corrigidos Magic Mirror
 """
 Funções utilitárias para o Magic Mirror
 Versão 3.0 - MQTT Only + Backend Registration
@@ -9,6 +9,17 @@ import gc
 import machine
 import json
 from config import *
+
+# Importar funções da fonte
+try:
+    from font import (
+        get_char_bitmap, get_text_width, get_text_height, 
+        split_text_to_fit, center_text_x, normalize_text, has_char
+    )
+    FONT_AVAILABLE = True
+except ImportError:
+    FONT_AVAILABLE = False
+    print("AVISO: font.py não encontrado - funcionalidades de texto limitadas")
 
 # ==================== FORMATAÇÃO DE TEMPO E DATA ====================
 
@@ -150,7 +161,7 @@ def log(level, message, data=None):
         # Adicionar identificação do dispositivo
         if DEVICE_ID:
             prefix += f" [{DEVICE_ID}]"
-        elif REGISTRATION_ID != "REG_CHANGEME_12345":
+        elif REGISTRATION_ID != "MIRROR_SALA_001":
             reg_short = REGISTRATION_ID[:8] + "..."
             prefix += f" [{reg_short}]"
         
@@ -197,6 +208,7 @@ def auto_garbage_collect():
             log_debug(f"GC: {free_before} -> {free_after} bytes (+{freed})")
         
         return freed
+    return 0
 
 def get_memory_info():
     """Informações detalhadas de memória"""
@@ -237,9 +249,22 @@ def validate_config():
     """Valida configurações obrigatórias"""
     issues = []
     
-    # Validações críticas
-    if REGISTRATION_ID == "REG_CHANGEME_12345":
-        issues.append("REGISTRATION_ID não configurado - obtenha do backend")
+    # Validações críticas - usar isinstance para verificar tipo antes de métodos
+    if not isinstance(REGISTRATION_ID, str):
+        issues.append("REGISTRATION_ID deve ser uma string")
+    elif REGISTRATION_ID == "MIRROR_SALA_001":
+        issues.append("REGISTRATION_ID deve ser personalizado")
+    elif len(REGISTRATION_ID) < 5:
+        issues.append("REGISTRATION_ID deve ter pelo menos 5 caracteres")
+    else:
+        # Verificar se contém apenas caracteres válidos
+        valid_chars = True
+        for char in REGISTRATION_ID:
+            if not (char.isalnum() or char in '_-'):
+                valid_chars = False
+                break
+        if not valid_chars:
+            issues.append("REGISTRATION_ID deve conter apenas letras, números, _ e -")
     
     if WIFI_SSID == "SUA_REDE_WIFI":
         issues.append("WIFI_SSID não configurado")
@@ -259,13 +284,6 @@ def validate_config():
     
     if MAX_EVENTS_DISPLAY < 1 or MAX_EVENTS_DISPLAY > 10:
         issues.append("MAX_EVENTS_DISPLAY deve estar entre 1 e 10")
-    
-    # Validações de registro
-    if not REGISTRATION_ID.replace('_', '').replace('-', '').isalnum():
-        issues.append("REGISTRATION_ID deve conter apenas letras, números, _ e -")
-    
-    if len(REGISTRATION_ID) < 10 or len(REGISTRATION_ID) > 50:
-        issues.append("REGISTRATION_ID deve ter entre 10 e 50 caracteres")
     
     return issues
 
@@ -452,9 +470,10 @@ def filter_events_by_time(events, start_time=None, end_time=None):
     
     for event in events:
         event_time = event.get('time', '')
+        is_all_day = event.get('isAllDay', False)
         
         # Pular eventos de dia inteiro se filtro estiver ativo
-        if event.get('isAllDay', False) and not FILTER_ALL_DAY_EVENTS:
+        if is_all_day and not FILTER_ALL_DAY_EVENTS:
             continue
         
         # Pular eventos passados se filtro estiver ativo
@@ -586,7 +605,7 @@ def safe_json_read(filename, default_data=None):
 def safe_json_write(filename, data):
     """Escrita segura de arquivo JSON"""
     try:
-        content = json.dumps(data, indent=2)
+        content = json.dumps(data)
         return safe_file_write(filename, content)
     except Exception as e:
         log_error(f"Erro ao escrever JSON {filename}", e)
@@ -601,7 +620,7 @@ def debug_print(message, data=None):
         if data:
             try:
                 if isinstance(data, (dict, list)):
-                    print(f"[DEBUG] Data: {json.dumps(data, indent=2)}")
+                    print(f"[DEBUG] Data: {json.dumps(data)}")
                 else:
                     print(f"[DEBUG] Data: {data}")
             except:
@@ -641,7 +660,7 @@ def system_diagnostics():
     
     # Estado dos arquivos
     print("\nARQUIVOS:")
-    files = ['config.py', 'utils.py', 'main.py', 'system_state.json']
+    files = ['config.py', 'utils.py', 'main.py', 'font.py', 'system_state.json']
     for filename in files:
         try:
             with open(filename, 'r') as f:
@@ -674,6 +693,61 @@ def compat_check():
             log_warn(f"Módulo {module} não disponível - {description} não funcionará")
     
     return available
+
+# ==================== WRAPPERS PARA FUNÇÕES DE FONT ====================
+
+def safe_get_text_width(text, scale=1):
+    """Wrapper seguro para get_text_width"""
+    if FONT_AVAILABLE:
+        return get_text_width(text, scale)
+    else:
+        return len(text) * 8 * scale  # Fallback básico
+
+def safe_get_text_height(scale=1):
+    """Wrapper seguro para get_text_height"""
+    if FONT_AVAILABLE:
+        return get_text_height(scale)
+    else:
+        return 8 * scale  # Fallback básico
+
+def safe_split_text_to_fit(text, max_width, scale=1):
+    """Wrapper seguro para split_text_to_fit"""
+    if FONT_AVAILABLE:
+        return split_text_to_fit(text, max_width, scale)
+    else:
+        # Fallback básico
+        char_width = 8 * scale
+        max_chars = max_width // char_width
+        if len(text) <= max_chars:
+            return [text]
+        else:
+            return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+
+def safe_center_text_x(text, display_width, scale=1):
+    """Wrapper seguro para center_text_x"""
+    if FONT_AVAILABLE:
+        return center_text_x(text, display_width, scale)
+    else:
+        # Fallback básico
+        text_width = len(text) * 8 * scale
+        return (display_width - text_width) // 2
+
+def safe_normalize_text(text):
+    """Wrapper seguro para normalize_text"""
+    if FONT_AVAILABLE:
+        return normalize_text(text)
+    else:
+        # Fallback básico - remover acentos comuns
+        replacements = {
+            'ã': 'a', 'á': 'a', 'ç': 'c', 'é': 'e', 'ê': 'e',
+            'í': 'i', 'ó': 'o', 'ô': 'o', 'ú': 'u',
+            'Ã': 'A', 'Á': 'A', 'Ç': 'C', 'É': 'E', 'Ê': 'E',
+            'Í': 'I', 'Ó': 'O', 'Ô': 'O', 'Ú': 'U'
+        }
+        result = text
+        for accented, normal in replacements.items():
+            result = result.replace(accented, normal)
+        return result
 
 # ==================== INICIALIZAÇÃO DOS UTILITÁRIOS ====================
 
