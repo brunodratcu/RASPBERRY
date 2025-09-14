@@ -1,44 +1,60 @@
-# config.py - Magic Mirror com MQTT Público
-"""
-Configuração usando broker MQTT público - Zero IP config!
-"""
+# config.py - Configuração Mínima Magic Mirror
 
-# ==================== MQTT PÚBLICO - SEM IP! ====================
-MQTT_BROKER = "test.mosquitto.org"  # Broker público
-MQTT_PORT = 1883
-TOPIC_PREFIX = ""  # Será definido pelo backend automaticamente
+# ==================== CONFIGURAÇÃO ESSENCIAL ====================
+# ⚠️ ALTERE APENAS ESTAS LINHAS ⚠️
 
-# ==================== CONFIGURAÇÃO ÚNICA ====================
-REGISTRATION_ID = "MIRROR_001"  # ALTERE AQUI - Deve ser único
-WIFI_SSID = "SuaRedeWiFi"       # ALTERE AQUI
-WIFI_PASSWORD = "SuaSenha"      # ALTERE AQUI
+WIFI_SSID = "Bruno Dratcu"        # Nome da sua rede WiFi
+WIFI_PASSWORD = "deniederror"       # Senha da sua rede WiFi  
+TIMEZONE_OFFSET = -3             # Fuso horário (Brasil = -3)
 
-# ==================== RESTO IGUAL ====================
-FIRMWARE_VERSION = "1.0"
+# ==================== CONFIGURAÇÕES TÉCNICAS ====================
+# ⚠️ SÓ ALTERE SE NECESSÁRIO ⚠️
+
 DISPLAY_WIDTH = 480
 DISPLAY_HEIGHT = 320
-DISPLAY_BRIGHTNESS = 80
 
-DISPLAY_PINS = {
-    'SCK': 2, 'MOSI': 3, 'CS': 5, 'DC': 4, 'RST': 6, 'BL': 7
-}
+# ==================== CONFIGURAÇÕES PARA COMPATIBILIDADE ====================
+# Variáveis que o main.py espera encontrar
 
-CONNECTION_TIMEOUT = 30
+REGISTRATION_ID = "MIRROR_001"
 MAX_RETRY_ATTEMPTS = 3
-TIMEZONE_OFFSET = -3
-TIME_FORMAT = "24H"
-MAX_EVENTS_DISPLAY = 5
+CONNECTION_TIMEOUT = 15
+FIRMWARE_VERSION = "2.0"
 DEBUG_ENABLED = True
 
+# Configurações MQTT (mesmo que não usado)
+MQTT_BROKER = "test.mosquitto.org"
+MQTT_PORT = 1883
+
+# ==================== FUNÇÕES NECESSÁRIAS ====================
 def validate_config():
-    issues = []
-    if REGISTRATION_ID == "MIRROR_001":
-        issues.append("Configure REGISTRATION_ID único")
+    """Valida configuração - função necessária para o main.py"""
+    errors = []
+    
     if WIFI_SSID == "SuaRedeWiFi":
-        issues.append("Configure WIFI_SSID")
+        errors.append("Configure WIFI_SSID")
+    
     if WIFI_PASSWORD == "SuaSenha":
-        issues.append("Configure WIFI_PASSWORD")
-    return issues
+        errors.append("Configure WIFI_PASSWORD")
+    
+    return errors
 
 def is_debug():
+    """Função necessária para o main.py"""
     return DEBUG_ENABLED
+
+# ==================== TESTE ====================
+if __name__ == "__main__":
+    print("Configuração Magic Mirror")
+    print("-" * 30)
+    print(f"WiFi: {WIFI_SSID}")
+    print(f"Fuso: UTC{TIMEZONE_OFFSET:+d}")
+    print(f"Display: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}")
+    
+    errors = validate_config()
+    if errors:
+        print("\n❌ Configurar:")
+        for error in errors:
+            print(f"  - {error}")
+    else:
+        print("\n✅ Configuração OK")

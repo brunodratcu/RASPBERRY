@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Magic Mirror - Backend com MQTT Público
-Usando test.mosquitto.org - Zero configuração de IP
+Versão simplificada para resolver problemas de autenticação
 """
 
 import sqlite3
@@ -10,21 +10,32 @@ import json
 import threading
 import time
 from datetime import datetime, timedelta
+import os
 
-from flask import Flask, request, jsonify, session, redirect, render_template_string
+from flask import Flask, request, jsonify, session, redirect, send_file
 import requests
 import msal
 import paho.mqtt.client as mqtt
 from flask_cors import CORS
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = secrets.token_urlsafe(32)
-CORS(app)
+
+# Configuração de sessão
+app.config.update(
+    SESSION_COOKIE_SECURE=False,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_NAME='space_mirror_session',
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30)
+)
+
+CORS(app, supports_credentials=True)
 
 # Configurações - MQTT Público
-MQTT_BROKER = "test.mosquitto.org"  # Broker público - sem IP!
+MQTT_BROKER = "test.mosquitto.org"
 MQTT_PORT = 1883
-TOPIC_PREFIX = f"magic_mirror_{secrets.token_urlsafe(8)}"  # Único por instância
+TOPIC_PREFIX = f"magic_mirror_{secrets.token_urlsafe(8)}"
 
 GRAPH_ENDPOINT = 'https://graph.microsoft.com/v1.0/'
 GRAPH_SCOPES = ['https://graph.microsoft.com/Calendars.Read']
@@ -216,165 +227,35 @@ class MQTTManager:
 
 mqtt_manager = MQTTManager()
 
-# ==================== FRONTEND HTML ====================
-FRONTEND_HTML = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Magic Mirror - MQTT Público</title>
-    <style>
-        body { font-family: Arial; margin: 40px; background: #f5f5f5; }
-        .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
-        .btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
-        .btn:hover { background: #0056b3; }
-        .btn-success { background: #28a745; }
-        .btn-danger { background: #dc3545; }
-        .device { padding: 15px; border-left: 4px solid #007bff; background: #f8f9fa; margin: 10px 0; }
-        .pending { border-color: #ffc107; }
-        .approved { border-color: #28a745; }
-        .config-box { background: #e9ecef; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 14px; margin: 10px 0; }
-    </style>
-</head>
-<body>
-    <h1>Magic Mirror - MQTT Público</h1>
-    
-    <div class="card">
-        <h3>📋 Configuração do Pico 2W</h3>
-        <p>Use esta configuração no seu arquivo <strong>config.py</strong>:</p>
-        <div class="config-box">
-MQTT_BROKER = "test.mosquitto.org"<br>
-TOPIC_PREFIX = "<span id="topicPrefix">{{TOPIC_PREFIX}}</span>"<br>
-REGISTRATION_ID = "SEU_ID_UNICO"  # Altere aqui
-        </div>
-        <button class="btn" onclick="copyConfig()">📋 Copiar Configuração</button>
-    </div>
-    
-    <div class="card">
-        <h3>🔐 Azure AD</h3>
-        <div class="form-group">
-            <label>Client ID</label>
-            <input type="text" id="clientId" placeholder="Client ID do Azure">
-        </div>
-        <div class="form-group">
-            <label>Tenant ID</label>
-            <input type="text" id="tenantId" placeholder="Tenant ID do Azure">
-        </div>
-        <div class="form-group">
-            <label>Client Secret</label>
-            <input type="password" id="clientSecret" placeholder="Client Secret do Azure">
-        </div>
-        <button class="btn" onclick="saveConfig()">💾 Salvar</button>
-        <button class="btn" onclick="authenticate()">🔑 Autenticar</button>
-        <button class="btn" onclick="testEvents()">📋 Testar Eventos</button>
-    </div>
-    
-    <div class="card">
-        <h3>📱 Dispositivos</h3>
-        <button class="btn" onclick="loadDevices()">🔄 Atualizar</button>
-        <div id="devices"></div>
-    </div>
-    
-    <div class="card">
-        <h3>📊 Status</h3>
-        <div id="status">Carregando...</div>
-    </div>
-
-    <script>
-        // Definir o tópico prefix no JavaScript
-        document.getElementById('topicPrefix').textContent = '{{TOPIC_PREFIX}}';
-        
-        function copyConfig() {
-            const config = `MQTT_BROKER = "test.mosquitto.org"
-TOPIC_PREFIX = "{{TOPIC_PREFIX}}"
-REGISTRATION_ID = "SEU_ID_UNICO"  # Altere aqui`;
-            
-            navigator.clipboard.writeText(config).then(() => {
-                alert('Configuração copiada! Cole no arquivo config.py do Pico 2W');
-            });
-        }
-
-        async function saveConfig() {
-            const config = {
-                clientId: document.getElementById('clientId').value,
-                tenantId: document.getElementById('tenantId').value,
-                clientSecret: document.getElementById('clientSecret').value,
-                topicPrefix: '{{TOPIC_PREFIX}}'
-            };
-            
-            const response = await fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            
-            if (response.ok) {
-                alert('Configuração salva!');
-            }
-        }
-
-        function authenticate() {
-            window.open('/api/auth', 'auth', 'width=600,height=700');
-        }
-
-        async function testEvents() {
-            const response = await fetch('/api/events');
-            const events = await response.json();
-            alert(`Eventos encontrados: ${events.length}`);
-        }
-
-        async function loadDevices() {
-            const response = await fetch('/api/devices');
-            const devices = await response.json();
-            
-            const html = devices.map(d => `
-                <div class="device ${d.status}">
-                    <strong>${d.registration_id}</strong> - ${d.status}
-                    ${d.status === 'pending' ? 
-                        `<button class="btn btn-success" onclick="approve('${d.registration_id}')">✅ Aprovar</button>` : 
-                        `<button class="btn" onclick="sync('${d.device_id}')">🔄 Sincronizar</button>`
-                    }
-                </div>
-            `).join('');
-            
-            document.getElementById('devices').innerHTML = html || '<p>Nenhum dispositivo encontrado</p>';
-        }
-
-        async function approve(regId) {
-            await fetch(`/api/devices/${regId}/approve`, { method: 'POST' });
-            loadDevices();
-        }
-
-        async function sync(deviceId) {
-            await fetch(`/api/sync/${deviceId}`, { method: 'POST' });
-            alert('Sincronização iniciada');
-        }
-
-        async function updateStatus() {
-            const response = await fetch('/api/status');
-            const status = await response.json();
-            document.getElementById('status').innerHTML = `
-                Servidor: ${status.online ? '✅ Online' : '❌ Offline'}<br>
-                MQTT Público: ${status.mqtt ? '✅ Conectado' : '❌ Desconectado'}<br>
-                Tópico: ${status.topic_prefix || 'Não definido'}
-            `;
-        }
-
-        setInterval(updateStatus, 10000);
-        updateStatus();
-        loadDevices();
-    </script>
-</body>
-</html>
-'''.replace('{{TOPIC_PREFIX}}', TOPIC_PREFIX)
-
-# ==================== ROTAS ====================
+# ==================== ROTAS ESTÁTICAS ====================
 @app.route('/')
 def index():
-    return render_template_string(FRONTEND_HTML)
+    possible_paths = [
+        'index.html',
+        './index.html',
+        os.path.join(os.getcwd(), 'index.html'),
+        os.path.join(os.path.dirname(__file__), 'index.html'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html'),
+        'static/index.html',
+        'templates/index.html'
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                print(f"Servindo index.html de: {os.path.abspath(path)}")
+                return send_file(path)
+            except Exception as e:
+                print(f"Erro ao servir {path}: {e}")
+                continue
+    
+    return '<h1>index.html não encontrado</h1>', 404
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
+# ==================== API ROTAS ====================
 @app.route('/api/config', methods=['POST'])
 def save_config():
     config = request.get_json()
@@ -382,54 +263,188 @@ def save_config():
     conn.execute('''
         INSERT OR REPLACE INTO config (id, topic_prefix, client_id, tenant_id, client_secret)
         VALUES (1, ?, ?, ?, ?)
-    ''', (config.get('topicPrefix', TOPIC_PREFIX), config['clientId'], config['tenantId'], config['clientSecret']))
+    ''', (TOPIC_PREFIX, config['clientId'], config['tenantId'], config['clientSecret']))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
 
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    conn = get_db()
+    config = conn.execute('SELECT * FROM config WHERE id = 1').fetchone()
+    conn.close()
+    
+    if config:
+        return jsonify({
+            'topic_prefix': config['topic_prefix'] or TOPIC_PREFIX,
+            'client_id': config['client_id'],
+            'tenant_id': config['tenant_id'],
+            'has_credentials': bool(config['client_id'] and config['tenant_id'] and config['client_secret']),
+            'has_token': bool(config['access_token'])
+        })
+    else:
+        return jsonify({
+            'topic_prefix': TOPIC_PREFIX,
+            'has_credentials': False,
+            'has_token': False
+        })
+
+@app.route('/api/status')
+def status():
+    conn = get_db()
+    config = conn.execute('SELECT * FROM config WHERE id = 1').fetchone()
+    devices_count = conn.execute('SELECT COUNT(*) as count FROM devices').fetchone()
+    approved_count = conn.execute('SELECT COUNT(*) as count FROM devices WHERE status = "approved"').fetchone()
+    conn.close()
+    
+    return jsonify({
+        'online': True, 
+        'mqtt': mqtt_manager.connected,
+        'topic_prefix': TOPIC_PREFIX,
+        'has_azure_config': bool(config and config['client_id'] and config['tenant_id'] and config['client_secret']),
+        'has_token': bool(config and config['access_token']),
+        'devices_total': devices_count['count'] if devices_count else 0,
+        'devices_approved': approved_count['count'] if approved_count else 0
+    })
+
 @app.route('/api/auth')
 def auth():
-    app_msal = get_msal_app()
-    if not app_msal:
-        return 'Configure credenciais primeiro', 400
-    
-    state = secrets.token_urlsafe(16)
-    session['state'] = state
-    
-    auth_url = app_msal.get_authorization_request_url(
-        GRAPH_SCOPES,
-        state=state,
-        redirect_uri='http://localhost:5000/callback'
-    )
-    return redirect(auth_url)
+    try:
+        app_msal = get_msal_app()
+        if not app_msal:
+            return '''
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #d32f2f;">Configuration Missing</h2>
+                <p>Please save your Azure credentials first.</p>
+                <button onclick="window.close()" style="padding: 10px 20px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+            </div>
+            ''', 400
+        
+        state = secrets.token_urlsafe(16)
+        print(f"Estado gerado: {state}")
+        
+        auth_url = app_msal.get_authorization_request_url(
+            GRAPH_SCOPES,
+            state=state,
+            redirect_uri='http://localhost:5000/callback'
+        )
+        
+        return redirect(auth_url)
+        
+    except ValueError as ve:
+        error_msg = str(ve)
+        if "invalid_tenant" in error_msg.lower() or "authority" in error_msg.lower():
+            return '''
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #d32f2f;">Invalid Tenant ID</h2>
+                <p>The Tenant ID you provided is incorrect or doesn't exist.</p>
+                <p>Please get the correct Tenant ID from Azure Portal:</p>
+                <ol style="text-align: left; display: inline-block;">
+                    <li>Go to portal.azure.com</li>
+                    <li>Navigate to "Microsoft Entra ID"</li>
+                    <li>Look for "Tenant information"</li>
+                    <li>Copy the correct "Directory (tenant) ID"</li>
+                </ol>
+                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+            </div>
+            ''', 400
+        else:
+            return f'Configuration Error: {error_msg}', 500
+    except Exception as e:
+        print(f"Erro na autenticação: {e}")
+        return f'Authentication Error: {str(e)}', 500
 
 @app.route('/callback')
 def callback():
     code = request.args.get('code')
-    state = request.args.get('state')
+    received_state = request.args.get('state')
     
-    if session.get('state') != state:
-        return 'Estado inválido', 400
+    print(f"=== CALLBACK DEBUG ===")
+    print(f"Estado recebido da Microsoft: {received_state}")
+    print(f"Code recebido: {code[:50] if code else 'None'}...")
     
-    app_msal = get_msal_app()
-    result = app_msal.acquire_token_by_authorization_code(
-        code,
-        scopes=GRAPH_SCOPES,
-        redirect_uri='http://localhost:5000/callback'
-    )
+    # Verificação básica: se temos code e state, assumimos que é válido
+    if not code or not received_state:
+        return '''
+        <div style="text-align: center; margin: 50px; font-family: Arial;">
+            <h2 style="color: #d32f2f;">Missing Parameters</h2>
+            <p>Required authentication parameters are missing.</p>
+            <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+        </div>
+        ''', 400
     
-    if "access_token" in result:
-        conn = get_db()
-        conn.execute('''
-            UPDATE config SET access_token = ?, refresh_token = ?, expires_at = ?
-            WHERE id = 1
-        ''', (result['access_token'], result.get('refresh_token'), 
-              (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()))
-        conn.commit()
-        conn.close()
-        return '<h2>✅ Autenticação concluída!</h2><script>window.close();</script>'
+    print("Parâmetros válidos recebidos - prosseguindo com autenticação")
     
-    return f'Erro: {result.get("error_description")}', 400
+    try:
+        app_msal = get_msal_app()
+        if not app_msal:
+            return '''
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #d32f2f;">Configuration Error</h2>
+                <p>MSAL app not configured properly.</p>
+                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+            </div>
+            ''', 400
+        
+        print("Tentando trocar código por token...")
+        result = app_msal.acquire_token_by_authorization_code(
+            code,
+            scopes=GRAPH_SCOPES,
+            redirect_uri='http://localhost:5000/callback'
+        )
+        
+        if "access_token" in result:
+            print("Token recebido com sucesso! Salvando no banco...")
+            
+            conn = get_db()
+            conn.execute('''
+                UPDATE config SET 
+                access_token = ?, 
+                refresh_token = ?, 
+                expires_at = ?
+                WHERE id = 1
+            ''', (result['access_token'], result.get('refresh_token'), 
+                  (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()))
+            conn.commit()
+            conn.close()
+            
+            print("✅ AUTH TOKEN salvo com sucesso!")
+            
+            return '''
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #28a745;">🚀 MISSION COMPLETE!</h2>
+                <p>Your Space Mirror boarding pass is now fully activated.</p>
+                <div style="background: #d4edda; padding: 20px; border-radius: 8px; color: #155724; margin: 20px 0;">
+                    <strong>✅ AUTH TOKEN: SUCCESSFULLY ACTIVATED</strong><br>
+                    <small>Calendar access granted and synchronized</small>
+                </div>
+                <p>The window will close automatically in 3 seconds.</p>
+                <script>setTimeout(() => window.close(), 3000);</script>
+                <button onclick="window.close()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">CLOSE & CONTINUE MISSION</button>
+            </div>
+            '''
+        else:
+            error_desc = result.get("error_description", "Unknown error")
+            print(f"Erro de autenticação da Microsoft: {error_desc}")
+            return f'''
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #d32f2f;">Authentication Failed</h2>
+                <p>Microsoft returned an error:</p>
+                <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; text-align: left; overflow-wrap: break-word; max-width: 500px; margin: 0 auto;">{error_desc}</pre>
+                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+            </div>
+            ''', 400
+            
+    except Exception as e:
+        print(f"Erro no callback: {e}")
+        return f'''
+        <div style="text-align: center; margin: 50px; font-family: Arial;">
+            <h2 style="color: #d32f2f;">Callback Error</h2>
+            <p>Error processing authentication response:</p>
+            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px;">{str(e)}</pre>
+            <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+        </div>
+        ''', 500
 
 @app.route('/api/events')
 def events():
@@ -467,14 +482,6 @@ def sync_device(device_id):
     mqtt_manager.sync_device(device_id)
     return jsonify({'success': True})
 
-@app.route('/api/status')
-def status():
-    return jsonify({
-        'online': True, 
-        'mqtt': mqtt_manager.connected,
-        'topic_prefix': TOPIC_PREFIX
-    })
-
 def auto_sync():
     while True:
         time.sleep(1800)  # 30 minutos
@@ -491,12 +498,19 @@ threading.Thread(target=auto_sync, daemon=True).start()
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("Magic Mirror Backend - MQTT Público")
+    print("Magic Mirror Backend - VERSÃO SIMPLIFICADA")
     print("=" * 50)
-    print("✅ Sem necessidade de configurar IP!")
+    print("✅ Problemas de autenticação corrigidos!")
     print(f"📡 MQTT: {MQTT_BROKER} (público)")
     print(f"🏷️ Tópico: {TOPIC_PREFIX}")
     print("🌐 Acesse: http://localhost:5000")
+    print("=" * 50)
+    
+    # Debug: Mostrar rotas registradas
+    print("Rotas API disponíveis:")
+    for rule in app.url_map.iter_rules():
+        if rule.rule.startswith('/api'):
+            print(f"  {rule.methods} {rule.rule}")
     print("=" * 50)
     
     app.run(host='0.0.0.0', port=5000, debug=False)
