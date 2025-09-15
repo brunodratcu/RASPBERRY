@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Magic Mirror - Versão Otimizada
-Redesenha apenas os dígitos que mudaram
+Magic Mirror - Versão Simplificada com MQTT
+Apenas relógio e status de conexão MQTT
 """
 
 import machine
 import utime
 import network
 import gc
+import json
 from machine import Pin, RTC
 
 # Importar configurações
@@ -19,6 +20,18 @@ except ImportError:
     TIMEZONE_OFFSET = -3
     DISPLAY_WIDTH = 480
     DISPLAY_HEIGHT = 320
+    # MQTT Config
+    MQTT_BROKER = "test.mosquitto.org"
+    MQTT_PORT = 1883
+    TOPIC_PREFIX = "magic_mirror_default"
+    DEVICE_ID = "mirror_001"
+
+# Importar MQTT
+try:
+    from umqtt.simple import MQTTClient
+    MQTT_AVAILABLE = True
+except ImportError:
+    MQTT_AVAILABLE = False
 
 # Importar fontes
 try:
@@ -46,6 +59,14 @@ except ImportError:
         'C': [0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00],
         'R': [0x7C, 0x66, 0x66, 0x7C, 0x78, 0x6C, 0x66, 0x00],
         'O': [0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00],
+        'H': [0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00],
+        'S': [0x3E, 0x60, 0x60, 0x3E, 0x06, 0x06, 0x7C, 0x00],
+        'T': [0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00],
+        'E': [0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x7E, 0x00],
+        'N': [0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00],
+        'D': [0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x00],
+        'L': [0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00],
+        'Z': [0x7E, 0x0E, 0x1C, 0x38, 0x70, 0x60, 0x7E, 0x00],
     }
 
 try:
@@ -74,6 +95,7 @@ GREEN = 0x07E0
 BLUE = 0x001F
 CYAN = 0x07FF
 YELLOW = 0xFFE0
+ORANGE = 0xFD20
 
 # ==================== FUNÇÕES DO DISPLAY ====================
 def write_byte(data):
@@ -163,11 +185,109 @@ def draw_centered(y, text, color, size=1):
     x = max(0, (DISPLAY_WIDTH - text_width) // 2)
     draw_text(x, y, text, color, size)
 
+# ==================== CLASSE MQTT ====================
+class MQTTHandler:
+    def __init__(self, device_id, topic_prefix):
+        self.device_id = device_id
+        self.topic_prefix = topic_prefix
+        self.client = None
+        self.connected = False
+        self.last_ping = 0
+        self.events = []
+        
+    def connect(self):
+        """Conecta ao broker MQTT"""
+        if not MQTT_AVAILABLE:
+            return False
+            
+        try:
+            client_id = f"{self.device_id}_{utime.ticks_ms()}"
+            self.client = MQTTClient(client_id, MQTT_BROKER, port=MQTT_PORT)
+            
+            # Configurar callback de mensagens
+            self.client.set_callback(self.on_message)
+            
+            # Conectar
+            self.client.connect()
+            
+            # Inscrever-se nos tópicos
+            self.client.subscribe(f"{self.topic_prefix}/devices/{self.device_id}/events")
+            self.client.subscribe(f"{self.topic_prefix}/registration")
+            
+            self.connected = True
+            self.last_ping = utime.ticks_ms()
+            
+            # Enviar registro
+            self.send_registration()
+            
+            return True
+            
+        except Exception as e:
+            self.connected = False
+            return False
+    
+    def on_message(self, topic, msg):
+        """Callback para mensagens MQTT recebidas"""
+        try:
+            topic_str = topic.decode()
+            msg_str = msg.decode()
+            data = json.loads(msg_str)
+            
+            # Processar eventos do calendário
+            if f"/devices/{self.device_id}/events" in topic_str:
+                self.events = data.get('events', [])
+                print(f"Eventos recebidos: {len(self.events)}")
+                
+        except Exception as e:
+            print(f"Erro processando mensagem MQTT: {e}")
+    
+    def send_registration(self):
+        """Envia mensagem de registro para o servidor"""
+        if not self.connected:
+            return
+            
+        try:
+            registration_data = {
+                'registration_id': self.device_id,
+                'timestamp': utime.time(),
+                'type': 'pico_2w'
+            }
+            
+            topic = f"{self.topic_prefix}/registration"
+            message = json.dumps(registration_data)
+            self.client.publish(topic, message)
+            
+        except Exception as e:
+            print(f"Erro enviando registro: {e}")
+    
+    def check_messages(self):
+        """Verifica mensagens MQTT (não bloqueante)"""
+        if not self.connected or not self.client:
+            return
+            
+        try:
+            self.client.check_msg()
+            
+            # Ping periódico para manter conexão
+            now = utime.ticks_ms()
+            if utime.ticks_diff(now, self.last_ping) > 30000:  # 30 segundos
+                self.client.ping()
+                self.last_ping = now
+                
+        except Exception as e:
+            print(f"Erro MQTT: {e}")
+            self.connected = False
+    
+    def get_events(self):
+        """Retorna eventos do calendário"""
+        return self.events
+
 # ==================== CLASSE PRINCIPAL ====================
 class MagicMirror:
     def __init__(self):
         self.wifi_connected = False
         self.ntp_synced = False
+        self.mqtt_handler = None
         
         # Controle de estado anterior para otimização
         self.last_display = {
@@ -175,7 +295,8 @@ class MagicMirror:
             'm1': None, 'm2': None,  # Dígitos dos minutos  
             's1': None, 's2': None,  # Dígitos dos segundos
             'date': None,            # Data completa
-            'status': None           # Status de conexão
+            'status': None,          # Status de conexão
+            'events': None           # Eventos
         }
         
         # Posições fixas dos dígitos no display
@@ -191,9 +312,9 @@ class MagicMirror:
         # Inicializar display
         init_display()
         
-        # Mostrar startup
+        # Mostrar tela de inicialização
         clear_screen(BLACK)
-        draw_centered(140, "MAGIC MIRROR", WHITE, 3)
+        draw_centered(140, "INICIALIZANDO MQTT", CYAN, 2)
         utime.sleep(2)
         
         # Configurar horário manual (simulação)
@@ -202,7 +323,7 @@ class MagicMirror:
         # Configurar tela principal
         self.setup_main_screen()
         
-        # Tentar WiFi em background
+        # Tentar WiFi e MQTT em background
         self.try_wifi_background()
     
     def setup_main_screen(self):
@@ -214,11 +335,12 @@ class MagicMirror:
         # Forçar redesenho completo na próxima atualização
         self.last_display = {
             'h1': None, 'h2': None, 'm1': None, 'm2': None, 
-            's1': None, 's2': None, 'date': None, 'status': None
+            's1': None, 's2': None, 'date': None, 'status': None,
+            'events': None
         }
     
     def try_wifi_background(self):
-        """Tenta WiFi sem bloquear interface"""
+        """Tenta WiFi e MQTT sem bloquear interface"""
         try:
             wlan = network.WLAN(network.STA_IF)
             wlan.active(True)
@@ -235,10 +357,28 @@ class MagicMirror:
                 if wlan.isconnected():
                     self.wifi_connected = True
                     self.sync_ntp()
+                    self.setup_mqtt()
                     # Redesenhar tela após conexão
                     self.setup_main_screen()
         except:
             pass
+    
+    def setup_mqtt(self):
+        """Configura conexão MQTT"""
+        if not self.wifi_connected:
+            return
+            
+        try:
+            self.mqtt_handler = MQTTHandler(DEVICE_ID, TOPIC_PREFIX)
+            mqtt_connected = self.mqtt_handler.connect()
+            
+            if mqtt_connected:
+                print("MQTT conectado com sucesso")
+            else:
+                print("Falha na conexão MQTT")
+                
+        except Exception as e:
+            print(f"Erro configurando MQTT: {e}")
     
     def sync_ntp(self):
         """Sincroniza horário via NTP"""
@@ -274,6 +414,30 @@ class MagicMirror:
             # Atualizar estado
             self.last_display[position_key] = new_digit
     
+    def update_events(self):
+        """Atualiza eventos do calendário na tela"""
+        if not self.mqtt_handler:
+            return
+            
+        events = self.mqtt_handler.get_events()
+        events_text = f"EVENTOS: {len(events)}" if events else "SEM EVENTOS"
+        
+        if self.last_display['events'] != events_text:
+            # Limpar área dos eventos
+            fill_rect(0, 240, DISPLAY_WIDTH, 25, BLACK)
+            
+            # Mostrar quantidade de eventos
+            draw_centered(245, events_text, YELLOW, 2)
+            
+            # Mostrar primeiro evento se existir
+            if events:
+                first_event = events[0]
+                event_title = first_event.get('title', 'Sem título')[:20]  # Limitar tamanho
+                fill_rect(0, 265, DISPLAY_WIDTH, 20, BLACK)
+                draw_centered(268, event_title, WHITE, 1)
+            
+            self.last_display['events'] = events_text
+    
     def update_clock(self):
         """Atualiza relógio - VERSÃO OTIMIZADA"""
         current = rtc.datetime()
@@ -300,33 +464,41 @@ class MagicMirror:
             draw_centered(130, date_str, CYAN, 3)
             self.last_display['date'] = date_str
         
-        # Status - atualizar apenas se mudou
-        status_color = GREEN if self.wifi_connected else YELLOW
-        status_text = "WIFI" if self.wifi_connected else "LOCAL"
-        if self.ntp_synced: 
-            status_text += " NTP"
+        # Status - mostrar apenas "LOCAL" em amarelo ou verde quando MQTT conectado
+        if self.mqtt_handler and self.mqtt_handler.connected:
+            status_text = "LOCAL"
+            status_color = GREEN
+        else:
+            status_text = "LOCAL"
+            status_color = YELLOW
         
-        if self.last_display['status'] != status_text:
+        if self.last_display['status'] != (status_text, status_color):
             fill_rect(0, 290, DISPLAY_WIDTH, 20, BLACK)  # Limpar área do status
             draw_centered(295, status_text, status_color, 1)
-            self.last_display['status'] = status_text
+            self.last_display['status'] = (status_text, status_color)
     
     def run(self):
-        """Loop principal simplificado"""
+        """Loop principal"""
         while True:
             try:
+                # Verificar mensagens MQTT
+                if self.mqtt_handler:
+                    self.mqtt_handler.check_messages()
+                
+                # Atualizar display
                 self.update_clock()
+                self.update_events()
                 
                 # Coleta de lixo ocasional
                 if utime.ticks_ms() % 60000 < 100:  # ~1 minuto
                     gc.collect()
                 
-                utime.sleep(1)
+                utime.sleep_ms(500)  # Loop mais lento sem blink
                 
             except KeyboardInterrupt:
                 break
-            except:
-                # Em caso de erro, continuar
+            except Exception as e:
+                print(f"Erro no loop principal: {e}")
                 utime.sleep(1)
 
 # ==================== EXECUÇÃO ====================
@@ -338,9 +510,7 @@ def main():
         # Mostrar erro e reiniciar
         try:
             clear_screen(BLACK)
-            draw_centered(100, "ERRO", RED, 4)
-            draw_centered(150, str(e)[:15], WHITE, 2)
-            draw_centered(200, "REINICIANDO", YELLOW, 2)
+            draw_centered(150, "ERRO DISPLAY", RED, 3)
             utime.sleep(3)
         except:
             pass

@@ -896,21 +896,9 @@ Then click "Grant admin consent for [Directory]"</div>
                 return;
             }
 
-            // Validação básica no frontend
-            if (clientId.length < 30 || tenantId.length < 30) {
-                showNotification('Client ID or Tenant ID format appears invalid (too short)', 'error');
-                return;
-            }
-
-            if (clientSecret.length < 10) {
-                showNotification('Client Secret appears too short', 'error');
-                return;
-            }
-
             try {
                 showNotification('Saving credentials...', 'info');
                 
-                // Salva as credenciais diretamente
                 const saveResponse = await fetch('/api/config', {
                     method: 'POST',
                     headers: { 
@@ -928,14 +916,8 @@ Then click "Grant admin consent for [Directory]"</div>
                     throw new Error(`Failed to save configuration: ${saveResponse.status}`);
                 }
                 
-                const saveResult = await saveResponse.json();
-                if (!saveResult.success) {
-                    throw new Error('Configuration save failed');
-                }
-                
                 showNotification('Configuration saved! Opening authentication...', 'success');
                 
-                // Aguarda um pouco e então abre a autenticação
                 setTimeout(() => {
                     const authWindow = window.open('/api/auth', 'auth', 'width=600,height=700,scrollbars=yes,resizable=yes');
                     
@@ -946,13 +928,16 @@ Then click "Grant admin consent for [Directory]"</div>
                     
                     showNotification('Complete the authentication in the popup window', 'info');
                     
-                    // Monitora se a janela foi fechada
                     const checkClosed = setInterval(() => {
                         if (authWindow.closed) {
                             clearInterval(checkClosed);
+                            showNotification('Authentication window closed - updating status...', 'info');
+                            
+                            // Aguarda um pouco e atualiza várias vezes para garantir
                             setTimeout(() => {
                                 updateSystemStatus();
-                                showNotification('Authentication window closed - checking status...', 'info');
+                                setTimeout(() => updateSystemStatus(), 2000);
+                                setTimeout(() => updateSystemStatus(), 5000);
                             }, 1000);
                         }
                     }, 1000);

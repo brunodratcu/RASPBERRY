@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Magic Mirror - Backend com MQTT Público
-Versão simplificada para resolver problemas de autenticação
+Versão com autenticação OAuth2 corrigida
 """
 
 import sqlite3
@@ -81,10 +81,11 @@ def get_msal_app():
     if not config:
         return None
     
-    return msal.ConfidentialClientApplication(
+    # Usar PublicClientApplication em vez de ConfidentialClientApplication
+    # para resolver o erro AADSTS700025
+    return msal.PublicClientApplication(
         config['client_id'],
-        authority=f"https://login.microsoftonline.com/{config['tenant_id']}",
-        client_credential=config['client_secret']
+        authority=f"https://login.microsoftonline.com/{config['tenant_id']}"
     )
 
 def get_valid_token():
@@ -297,12 +298,24 @@ def status():
     approved_count = conn.execute('SELECT COUNT(*) as count FROM devices WHERE status = "approved"').fetchone()
     conn.close()
     
+    # Debug: log do status
+    has_credentials = bool(config and config['client_id'] and config['tenant_id'] and config['client_secret'])
+    has_token = bool(config and config['access_token'] and len(config['access_token']) > 10)
+    
+    print(f"=== STATUS DEBUG ===")
+    print(f"Config exists: {bool(config)}")
+    print(f"Has credentials: {has_credentials}")
+    print(f"Has token: {has_token}")
+    if config and config['access_token']:
+        print(f"Token length: {len(config['access_token'])}")
+        print(f"Token preview: {config['access_token'][:50]}...")
+    
     return jsonify({
         'online': True, 
         'mqtt': mqtt_manager.connected,
         'topic_prefix': TOPIC_PREFIX,
-        'has_azure_config': bool(config and config['client_id'] and config['tenant_id'] and config['client_secret']),
-        'has_token': bool(config and config['access_token']),
+        'has_azure_config': has_credentials,
+        'has_token': has_token,
         'devices_total': devices_count['count'] if devices_count else 0,
         'devices_approved': approved_count['count'] if approved_count else 0
     })
@@ -320,12 +333,12 @@ def auth():
             </div>
             ''', 400
         
-        state = secrets.token_urlsafe(16)
-        print(f"Estado gerado: {state}")
+        # Usar uma abordagem mais simples - sem validação de estado
+        # Para resolver problemas de sessão em popups
+        print("Gerando URL de autenticação sem validação de estado")
         
         auth_url = app_msal.get_authorization_request_url(
             GRAPH_SCOPES,
-            state=state,
             redirect_uri='http://localhost:5000/callback'
         )
         
@@ -356,37 +369,46 @@ def auth():
 
 @app.route('/callback')
 def callback():
-    code = request.args.get('code')
-    received_state = request.args.get('state')
-    
-    print(f"=== CALLBACK DEBUG ===")
-    print(f"Estado recebido da Microsoft: {received_state}")
-    print(f"Code recebido: {code[:50] if code else 'None'}...")
-    
-    # Verificação básica: se temos code e state, assumimos que é válido
-    if not code or not received_state:
-        return '''
-        <div style="text-align: center; margin: 50px; font-family: Arial;">
-            <h2 style="color: #d32f2f;">Missing Parameters</h2>
-            <p>Required authentication parameters are missing.</p>
-            <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
-        </div>
-        ''', 400
-    
-    print("Parâmetros válidos recebidos - prosseguindo com autenticação")
-    
+    """Processa o callback de autenticação OAuth2"""
     try:
+        # Verificar parâmetros
+        code = request.args.get('code')
+        error = request.args.get('error')
+        
+        if error:
+            return f'''
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #d32f2f;">Authentication Error</h2>
+                <p>Error: {error}</p>
+                <p>Description: {request.args.get('error_description', 'No description available')}</p>
+                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+            </div>
+            '''
+        
+        if not code:
+            return '''
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #d32f2f;">Missing Authorization Code</h2>
+                <p>No authorization code received from Azure.</p>
+                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+            </div>
+            '''
+        
+        print(f"Código de autorização recebido: {code[:20]}...")
+        
+        # Obter aplicação MSAL
         app_msal = get_msal_app()
         if not app_msal:
             return '''
             <div style="text-align: center; margin: 50px; font-family: Arial;">
                 <h2 style="color: #d32f2f;">Configuration Error</h2>
-                <p>MSAL app not configured properly.</p>
+                <p>MSAL application not configured.</p>
                 <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
             </div>
-            ''', 400
+            '''
         
-        print("Tentando trocar código por token...")
+        # Trocar código por token
+        print("Trocando código por token de acesso...")
         result = app_msal.acquire_token_by_authorization_code(
             code,
             scopes=GRAPH_SCOPES,
@@ -394,8 +416,9 @@ def callback():
         )
         
         if "access_token" in result:
-            print("Token recebido com sucesso! Salvando no banco...")
+            print("Token de acesso obtido com sucesso!")
             
+            # Salvar token no banco de dados
             conn = get_db()
             conn.execute('''
                 UPDATE config SET 
@@ -403,48 +426,54 @@ def callback():
                 refresh_token = ?, 
                 expires_at = ?
                 WHERE id = 1
-            ''', (result['access_token'], result.get('refresh_token'), 
-                  (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()))
+            ''', (
+                result['access_token'], 
+                result.get('refresh_token'), 
+                (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()
+            ))
             conn.commit()
             conn.close()
             
-            print("✅ AUTH TOKEN salvo com sucesso!")
+            print("Token salvo no banco de dados")
             
             return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #28a745;">🚀 MISSION COMPLETE!</h2>
-                <p>Your Space Mirror boarding pass is now fully activated.</p>
-                <div style="background: #d4edda; padding: 20px; border-radius: 8px; color: #155724; margin: 20px 0;">
-                    <strong>✅ AUTH TOKEN: SUCCESSFULLY ACTIVATED</strong><br>
-                    <small>Calendar access granted and synchronized</small>
+            <div style="text-align: center; margin: 50px; font-family: Arial; background: linear-gradient(135deg, #0a0a0a, #1a1a2e); color: white; min-height: 100vh; display: flex; align-items: center; justify-content: center;">
+                <div style="background: rgba(0, 255, 255, 0.1); border: 2px solid #00ffff; border-radius: 15px; padding: 40px; box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);">
+                    <h2 style="color: #00ffff; font-family: 'Orbitron', monospace;">AUTHENTICATION SUCCESSFUL</h2>
+                    <p style="margin: 20px 0; font-size: 16px;">Your Space Mirror credentials have been validated and stored securely.</p>
+                    <p style="margin: 20px 0; color: #00ff00;">System is now ready to sync with your Outlook Calendar!</p>
+                    <button onclick="window.close()" style="padding: 15px 30px; background: linear-gradient(45deg, #00ffff, #ff00ff); color: #000; border: none; border-radius: 8px; cursor: pointer; font-family: 'Orbitron', monospace; font-weight: bold; text-transform: uppercase;">Close Window</button>
                 </div>
-                <p>The window will close automatically in 3 seconds.</p>
-                <script>setTimeout(() => window.close(), 3000);</script>
-                <button onclick="window.close()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">CLOSE & CONTINUE MISSION</button>
             </div>
             '''
         else:
-            error_desc = result.get("error_description", "Unknown error")
-            print(f"Erro de autenticação da Microsoft: {error_desc}")
+            error_desc = result.get("error_description", "Unknown error during token exchange")
+            print(f"Erro na troca do token: {error_desc}")
+            
             return f'''
             <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">Authentication Failed</h2>
-                <p>Microsoft returned an error:</p>
-                <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; text-align: left; overflow-wrap: break-word; max-width: 500px; margin: 0 auto;">{error_desc}</pre>
+                <h2 style="color: #d32f2f;">Token Exchange Failed</h2>
+                <p>Error: {result.get("error", "unknown_error")}</p>
+                <p>Description: {error_desc}</p>
                 <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
             </div>
-            ''', 400
+            '''
             
     except Exception as e:
         print(f"Erro no callback: {e}")
         return f'''
         <div style="text-align: center; margin: 50px; font-family: Arial;">
             <h2 style="color: #d32f2f;">Callback Error</h2>
-            <p>Error processing authentication response:</p>
-            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px;">{str(e)}</pre>
+            <p>An error occurred while processing the authentication callback.</p>
+            <p>Details: {str(e)}</p>
             <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
         </div>
-        ''', 500
+        '''
+
+@app.route('/api/complete-auth', methods=['POST'])
+def complete_auth():
+    # Esta rota não é mais necessária com o callback funcionando
+    return jsonify({'success': False, 'error': 'Use OAuth2 callback flow instead'})
 
 @app.route('/api/events')
 def events():
@@ -498,9 +527,9 @@ threading.Thread(target=auto_sync, daemon=True).start()
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("Magic Mirror Backend - VERSÃO SIMPLIFICADA")
+    print("Magic Mirror Backend - AUTENTICAÇÃO CORRIGIDA")
     print("=" * 50)
-    print("✅ Problemas de autenticação corrigidos!")
+    print("✅ OAuth2 callback flow implementado!")
     print(f"📡 MQTT: {MQTT_BROKER} (público)")
     print(f"🏷️ Tópico: {TOPIC_PREFIX}")
     print("🌐 Acesse: http://localhost:5000")
@@ -509,7 +538,7 @@ if __name__ == '__main__':
     # Debug: Mostrar rotas registradas
     print("Rotas API disponíveis:")
     for rule in app.url_map.iter_rules():
-        if rule.rule.startswith('/api'):
+        if rule.rule.startswith('/api') or rule.rule == '/callback':
             print(f"  {rule.methods} {rule.rule}")
     print("=" * 50)
     
