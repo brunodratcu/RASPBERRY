@@ -354,6 +354,83 @@
             color: var(--bg-space);
         }
 
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 12px;
+            min-width: 100px;
+        }
+
+        /* Device management styles */
+        .device-card {
+            background: var(--bg-panel);
+            border: 2px solid var(--border-glow);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .device-card:hover {
+            border-color: var(--primary-glow);
+            box-shadow: 0 5px 20px rgba(0, 255, 255, 0.2);
+        }
+
+        .device-card.approved {
+            border-color: var(--success-glow);
+        }
+
+        .device-card.pending {
+            border-color: var(--accent-glow);
+        }
+
+        .device-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-family: 'Orbitron', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .device-status.approved {
+            background: rgba(0, 255, 0, 0.1);
+            color: var(--success-glow);
+            border: 1px solid var(--success-glow);
+        }
+
+        .device-status.pending {
+            background: rgba(255, 255, 0, 0.1);
+            color: var(--accent-glow);
+            border: 1px solid var(--accent-glow);
+        }
+
+        .device-info {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .device-details h4 {
+            color: var(--primary-glow);
+            font-family: 'Orbitron', monospace;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+
+        .device-details .registration-id {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 10px;
+        }
+
         /* Tutorial steps */
         .tutorial-container {
             display: grid;
@@ -586,6 +663,9 @@
             <button class="nav-tab active" onclick="switchTab('boarding')">
                 BOARDING PASS SETUP
             </button>
+            <button class="nav-tab" onclick="switchTab('devices')">
+                DEVICE SYNC
+            </button>
             <button class="nav-tab" onclick="switchTab('credentials')">
                 AZURE CREDENTIALS
             </button>
@@ -633,70 +713,36 @@
             </div>
         </div>
 
-        <!-- Azure Credentials Guide Tab -->
-        <div id="credentials" class="tab-content">
+        <!-- Device Sync Tab -->
+        <div id="devices" class="tab-content">
             <div class="space-card">
-                <h3>AZURE CREDENTIALS ACQUISITION PROTOCOL</h3>
+                <h3>MQTT DEVICE SYNCHRONIZATION</h3>
                 <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
-                    Follow this classified procedure to obtain your Azure boarding credentials
+                    Monitor and manage connected Pico 2W devices for calendar synchronization
                 </p>
 
-                <div style="text-align: center; margin-bottom: 30px;">
-                    <button class="btn btn-outline" onclick="openCredentialsGuide()">
-                        ACCESS CREDENTIALS GUIDE
+                <div style="display: flex; gap: 20px; justify-content: center; margin-bottom: 30px; flex-wrap: wrap;">
+                    <button class="btn" onclick="scanForDevices()">
+                        SCAN FOR DEVICES
+                    </button>
+                    <button class="btn btn-outline" onclick="refreshDeviceList()">
+                        REFRESH LIST
                     </button>
                 </div>
 
+                <div id="deviceScanStatus" style="text-align: center; margin-bottom: 20px; color: var(--text-secondary);">
+                    Click "SCAN FOR DEVICES" to search for Pico 2W devices
+                </div>
+
+                <div id="deviceList">
+                    <!-- Devices will be populated here -->
+                </div>
+            </div>
+
+            <!-- Connection Guide -->
+            <div class="space-card">
+                <h3>PICO 2W CONNECTION PROTOCOL</h3>
                 <div class="tutorial-steps">
-                    <div class="tutorial-step">
-                        <div class="step-title">ACCESS AZURE PORTAL</div>
-                        <div class="step-description">
-                            Navigate to the Azure Command Center and authenticate with your Microsoft credentials
-                        </div>
-                        <div class="step-code">portal.azure.com</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">LOCATE APPLICATION REGISTRY</div>
-                        <div class="step-description">
-                            In the Azure portal search bar, enter "entra id" and select "Microsoft Entra ID"
-                        </div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">CREATE APPLICATION REGISTRATION</div>
-                        <div class="step-description">
-                            Navigate to "App registrations" → Click "New registration"
-                        </div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">CONFIGURE APPLICATION</div>
-                        <div class="step-description">
-                            Set up your application with these parameters:
-                        </div>
-                        <div class="step-code">Name: Space Mirror - [Your Name]
-Account types: Accounts in any organizational directory and personal Microsoft accounts
-Redirect URI: http://localhost:5000/callback</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">EXTRACT IDENTIFIERS</div>
-                        <div class="step-description">
-                            From the Overview page, copy these critical values:
-                        </div>
-                        <div class="step-code">• Application (client) ID → CLIENT ID
-• Directory (tenant) ID → TENANT ID</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">GENERATE SECRET KEY</div>
-                        <div class="step-description">
-                            Navigate to "Certificates & secrets" → "Client secrets" → "New client secret"
-                        </div>
-                        <div class="step-code">Copy the SECRET VALUE immediately - it only appears once!</div>
-                    </div>
-
                     <div class="tutorial-step">
                         <div class="step-title">CONFIGURE PERMISSIONS</div>
                         <div class="step-description">
@@ -933,7 +979,6 @@ Then click "Grant admin consent for [Directory]"</div>
                             clearInterval(checkClosed);
                             showNotification('Authentication window closed - updating status...', 'info');
                             
-                            // Aguarda um pouco e atualiza várias vezes para garantir
                             setTimeout(() => {
                                 updateSystemStatus();
                                 setTimeout(() => updateSystemStatus(), 2000);
@@ -988,6 +1033,155 @@ Then click "Grant admin consent for [Directory]"</div>
             }
         }
 
+        // Device management functions
+        async function scanForDevices() {
+            const statusDiv = document.getElementById('deviceScanStatus');
+            statusDiv.innerHTML = `
+                <div style="color: var(--primary-glow); display: flex; align-items: center; justify-content: center; gap: 10px;">
+                    <div style="animation: pulse-glow 1s ease-in-out infinite;">🔍</div>
+                    Scanning for Pico 2W devices...
+                </div>
+            `;
+            
+            try {
+                await refreshDeviceList();
+                
+                setTimeout(() => {
+                    statusDiv.innerHTML = `
+                        <div style="color: var(--success-glow);">
+                            Scan completed. Check device list below.
+                        </div>
+                    `;
+                }, 2000);
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div style="color: var(--error-glow);">
+                        Scan failed: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        async function refreshDeviceList() {
+            try {
+                const response = await fetch('/api/devices');
+                const devices = await response.json();
+                
+                const deviceListDiv = document.getElementById('deviceList');
+                
+                if (devices.length === 0) {
+                    deviceListDiv.innerHTML = `
+                        <div style="text-align: center; padding: 30px; color: var(--text-secondary);">
+                            <div style="font-size: 3em; margin-bottom: 10px;">📡</div>
+                            <div>No devices detected yet</div>
+                            <div style="font-size: 0.9em; margin-top: 10px;">Make sure your Pico 2W is connected and running the client code</div>
+                        </div>
+                    `;
+                } else {
+                    deviceListDiv.innerHTML = devices.map(device => createDeviceCard(device)).join('');
+                }
+            } catch (error) {
+                showNotification('Failed to load device list', 'error');
+            }
+        }
+
+        function createDeviceCard(device) {
+            const statusColor = device.status === 'approved' ? 'var(--success-glow)' : 
+                               device.status === 'pending' ? 'var(--accent-glow)' : 'var(--error-glow)';
+            
+            const statusIcon = device.status === 'approved' ? '✓' : 
+                              device.status === 'pending' ? '⏳' : '✗';
+            
+            return `
+                <div class="space-card" style="margin-bottom: 20px; border-color: ${statusColor};">
+                    <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 20px; align-items: center;">
+                        <div>
+                            <div style="color: var(--primary-glow); font-family: 'Orbitron', monospace; font-weight: 600; margin-bottom: 8px;">
+                                DEVICE: ${device.device_id || 'Pending Assignment'}
+                            </div>
+                            <div style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 5px;">
+                                Registration ID: ${device.registration_id}
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="color: ${statusColor}; font-size: 1.2em;">${statusIcon}</span>
+                                <span style="color: ${statusColor}; font-family: 'Orbitron', monospace; text-transform: uppercase;">
+                                    ${device.status}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div style="text-align: center;">
+                            ${device.status === 'pending' ? `
+                                <button class="btn btn-success" onclick="approveDevice('${device.registration_id}')" style="font-size: 12px; padding: 10px 20px;">
+                                    APPROVE
+                                </button>
+                            ` : device.status === 'approved' ? `
+                                <button class="btn" onclick="syncDevice('${device.device_id}')" style="font-size: 12px; padding: 10px 20px;">
+                                    SYNC NOW
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function approveDevice(registrationId) {
+            try {
+                const response = await fetch(`/api/devices/${registrationId}/approve`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showNotification(`Device approved: ${result.device_id}`, 'success');
+                    refreshDeviceList();
+                } else {
+                    showNotification('Failed to approve device', 'error');
+                }
+            } catch (error) {
+                showNotification('Error approving device', 'error');
+            }
+        }
+
+        async function syncDevice(deviceId) {
+            try {
+                showNotification('Synchronizing device...', 'info');
+                
+                const response = await fetch(`/api/sync/${deviceId}`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification('Device synchronized successfully!', 'success');
+                    } else {
+                        showNotification('Synchronization failed', 'error');
+                    }
+                } else {
+                    showNotification('Failed to sync device', 'error');
+                }
+            } catch (error) {
+                showNotification('Error during synchronization', 'error');
+            }
+        }
+
+        async function updateTopicInfo() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                const topicInfoDiv = document.getElementById('topicInfo');
+                if (topicInfoDiv) {
+                    topicInfoDiv.textContent = `MQTT Broker: test.mosquitto.org:1883
+Registration Topic: ${config.topic_prefix}/registration
+Events Topic: ${config.topic_prefix}/devices/[device_id]/events`;
+                }
+            } catch (error) {
+                console.log('Could not update topic info');
+            }
+        }
+
         // Notification system
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
@@ -1025,6 +1219,17 @@ Then click "Grant admin consent for [Directory]"</div>
             
             // Load existing configuration if any
             loadExistingConfig();
+            
+            // Update topic information
+            updateTopicInfo();
+            
+            // Auto-refresh device list every 10 seconds when on devices tab
+            setInterval(() => {
+                const devicesTab = document.getElementById('devices');
+                if (devicesTab && devicesTab.classList.contains('active')) {
+                    refreshDeviceList();
+                }
+            }, 10000);
         });
 
         async function loadExistingConfig() {
@@ -1069,4 +1274,103 @@ Then click "Grant admin consent for [Directory]"</div>
         });
     </script>
 </body>
-</html>
+</html>DEVICE PREPARATION</div>
+                        <div class="step-description">
+                            Ensure your Pico 2W is running the Magic Mirror client firmware and connected to WiFi.
+                        </div>
+                        <div class="step-code">Required: Pico 2W with MQTT client code
+WiFi connection with internet access</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">TOPIC CONFIGURATION</div>
+                        <div class="step-description">
+                            The Pico 2W should connect to the MQTT broker and subscribe to the registration topic.
+                        </div>
+                        <div class="step-code" id="topicInfo">MQTT Broker: test.mosquitto.org:1883
+Registration Topic: [Loading...]</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">DEVICE REGISTRATION</div>
+                        <div class="step-description">
+                            The device will automatically appear in the scan results when it connects to MQTT.
+                        </div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">APPROVAL PROCESS</div>
+                        <div class="step-description">
+                            Once detected, approve the device to start receiving calendar events.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Azure Credentials Guide Tab -->
+        <div id="credentials" class="tab-content">
+            <div class="space-card">
+                <h3>AZURE CREDENTIALS ACQUISITION PROTOCOL</h3>
+                <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
+                    Follow this classified procedure to obtain your Azure boarding credentials
+                </p>
+
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <button class="btn btn-outline" onclick="openCredentialsGuide()">
+                        ACCESS CREDENTIALS GUIDE
+                    </button>
+                </div>
+
+                <div class="tutorial-steps">
+                    <div class="tutorial-step">
+                        <div class="step-title">ACCESS AZURE PORTAL</div>
+                        <div class="step-description">
+                            Navigate to the Azure Command Center and authenticate with your Microsoft credentials
+                        </div>
+                        <div class="step-code">portal.azure.com</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">LOCATE APPLICATION REGISTRY</div>
+                        <div class="step-description">
+                            In the Azure portal search bar, enter "entra id" and select "Microsoft Entra ID"
+                        </div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">CREATE APPLICATION REGISTRATION</div>
+                        <div class="step-description">
+                            Navigate to "App registrations" → Click "New registration"
+                        </div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">CONFIGURE APPLICATION</div>
+                        <div class="step-description">
+                            Set up your application with these parameters:
+                        </div>
+                        <div class="step-code">Name: Space Mirror - [Your Name]
+Account types: Accounts in any organizational directory and personal Microsoft accounts
+Redirect URI: http://localhost:5000/callback</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">EXTRACT IDENTIFIERS</div>
+                        <div class="step-description">
+                            From the Overview page, copy these critical values:
+                        </div>
+                        <div class="step-code">• Application (client) ID → CLIENT ID
+• Directory (tenant) ID → TENANT ID</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">GENERATE SECRET KEY</div>
+                        <div class="step-description">
+                            Navigate to "Certificates & secrets" → "Client secrets" → "New client secret"
+                        </div>
+                        <div class="step-code">Copy the SECRET VALUE immediately - it only appears once!</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Magic Mirror - Backend com MQTT Público
-Versão com autenticação OAuth2 corrigida
+Magic Mirror - Backend com MQTT
+Sistema completo para sincronização de eventos do Outlook
 """
 
 import sqlite3
@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timedelta
 import os
 
-from flask import Flask, request, jsonify, session, redirect, send_file
+from flask import Flask, request, jsonify, redirect, send_file
 import requests
 import msal
 import paho.mqtt.client as mqtt
@@ -21,18 +21,16 @@ from flask_cors import CORS
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = secrets.token_urlsafe(32)
 
-# Configuração de sessão
 app.config.update(
     SESSION_COOKIE_SECURE=False,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    SESSION_COOKIE_NAME='space_mirror_session',
     PERMANENT_SESSION_LIFETIME=timedelta(minutes=30)
 )
 
 CORS(app, supports_credentials=True)
 
-# Configurações - MQTT Público
+# Configurações MQTT
 MQTT_BROKER = "test.mosquitto.org"
 MQTT_PORT = 1883
 TOPIC_PREFIX = f"magic_mirror_{secrets.token_urlsafe(8)}"
@@ -40,7 +38,7 @@ TOPIC_PREFIX = f"magic_mirror_{secrets.token_urlsafe(8)}"
 GRAPH_ENDPOINT = 'https://graph.microsoft.com/v1.0/'
 GRAPH_SCOPES = ['https://graph.microsoft.com/Calendars.Read']
 
-# ==================== BANCO ====================
+# ==================== BANCO DE DADOS ====================
 def init_db():
     conn = sqlite3.connect('mirror.db')
     cursor = conn.cursor()
@@ -73,7 +71,7 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-# ==================== OUTLOOK ====================
+# ==================== MICROSOFT OUTLOOK ====================
 def get_msal_app():
     conn = get_db()
     config = conn.execute('SELECT * FROM config WHERE id = 1').fetchone()
@@ -81,8 +79,6 @@ def get_msal_app():
     if not config:
         return None
     
-    # Usar PublicClientApplication em vez de ConfidentialClientApplication
-    # para resolver o erro AADSTS700025
     return msal.PublicClientApplication(
         config['client_id'],
         authority=f"https://login.microsoftonline.com/{config['tenant_id']}"
@@ -148,7 +144,7 @@ def get_today_events():
     
     return []
 
-# ==================== MQTT ====================
+# ==================== MQTT MANAGER ====================
 class MQTTManager:
     def __init__(self):
         self.connected = False
@@ -159,7 +155,7 @@ class MQTTManager:
     
     def connect(self):
         try:
-            print(f"Conectando MQTT público: {MQTT_BROKER}")
+            print(f"Conectando MQTT: {MQTT_BROKER}:{MQTT_PORT}")
             self.client.connect(MQTT_BROKER, MQTT_PORT, 60)
             self.client.loop_start()
         except Exception as e:
@@ -197,11 +193,13 @@ class MQTTManager:
                 'topic_prefix': TOPIC_PREFIX
             }
             self.client.publish(f"{TOPIC_PREFIX}/registration", json.dumps(response))
+            print(f"Dispositivo aprovado reconectado: {device['device_id']}")
             self.sync_device(device['device_id'])
         else:
             if not device:
                 conn.execute('INSERT OR IGNORE INTO devices (registration_id) VALUES (?)', (reg_id,))
                 conn.commit()
+                print(f"Novo dispositivo registrado: {reg_id}")
             response = {
                 'registration_id': reg_id, 
                 'status': 'pending',
@@ -213,50 +211,71 @@ class MQTTManager:
     
     def sync_device(self, device_id):
         if not self.connected:
-            return
+            print("❌ MQTT não conectado - não é possível sincronizar")
+            return False
         
+        print(f"🔄 Iniciando sincronização para dispositivo: {device_id}")
+        
+        # Obter eventos do Outlook
         events = get_today_events()
+        print(f"📅 Obtidos {len(events)} eventos do Outlook")
+        
+        # Ordenar eventos por horário (crescente)
+        events_sorted = sorted(events, key=lambda x: x.get('time', '23:59'))
+        
         events_data = {
             'device_id': device_id,
             'date': datetime.now().strftime('%Y-%m-%d'),
-            'events': events,
-            'count': len(events)
+            'events': events_sorted,
+            'count': len(events_sorted),
+            'sync_time': datetime.now().isoformat(),
+            'server_info': {
+                'topic_prefix': self.topic_prefix,
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            }
         }
         
-        self.client.publish(f"{TOPIC_PREFIX}/devices/{device_id}/events", json.dumps(events_data))
-        print(f"Eventos enviados para {device_id}: {len(events)}")
+        topic = f"{self.topic_prefix}/devices/{device_id}/events"
+        message = json.dumps(events_data)
+        
+        try:
+            result = self.client.publish(topic, message)
+            print(f"📡 Mensagem MQTT publicada:")
+            print(f"   Tópico: {topic}")
+            print(f"   Tamanho: {len(message)} bytes")
+            print(f"   Eventos: {len(events_sorted)}")
+            
+            # Log dos primeiros eventos para verificação
+            for i, event in enumerate(events_sorted[:3]):
+                time_str = event.get('time', 'Todo dia')
+                title = event.get('title', 'Sem título')
+                print(f"   {i+1}. {time_str} - {title}")
+            
+            if len(events_sorted) > 3:
+                print(f"   ... e mais {len(events_sorted) - 3} eventos")
+            
+            print(f"✅ Sincronização concluída para {device_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erro ao publicar mensagem MQTT: {e}")
+            return False
 
 mqtt_manager = MQTTManager()
 
-# ==================== ROTAS ESTÁTICAS ====================
+# ==================== ROTAS WEB ====================
 @app.route('/')
 def index():
-    possible_paths = [
-        'index.html',
-        './index.html',
-        os.path.join(os.getcwd(), 'index.html'),
-        os.path.join(os.path.dirname(__file__), 'index.html'),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html'),
-        'static/index.html',
-        'templates/index.html'
-    ]
-    
-    for path in possible_paths:
+    html_paths = ['index.html', './index.html', 'templates/index.html']
+    for path in html_paths:
         if os.path.exists(path):
-            try:
-                print(f"Servindo index.html de: {os.path.abspath(path)}")
-                return send_file(path)
-            except Exception as e:
-                print(f"Erro ao servir {path}: {e}")
-                continue
-    
-    return '<h1>index.html não encontrado</h1>', 404
+            return send_file(path)
+    return '<h1>Interface não encontrada</h1>', 404
 
 @app.route('/favicon.ico')
 def favicon():
     return '', 204
 
-# ==================== API ROTAS ====================
 @app.route('/api/config', methods=['POST'])
 def save_config():
     config = request.get_json()
@@ -283,12 +302,7 @@ def get_config():
             'has_credentials': bool(config['client_id'] and config['tenant_id'] and config['client_secret']),
             'has_token': bool(config['access_token'])
         })
-    else:
-        return jsonify({
-            'topic_prefix': TOPIC_PREFIX,
-            'has_credentials': False,
-            'has_token': False
-        })
+    return jsonify({'topic_prefix': TOPIC_PREFIX, 'has_credentials': False, 'has_token': False})
 
 @app.route('/api/status')
 def status():
@@ -298,17 +312,8 @@ def status():
     approved_count = conn.execute('SELECT COUNT(*) as count FROM devices WHERE status = "approved"').fetchone()
     conn.close()
     
-    # Debug: log do status
     has_credentials = bool(config and config['client_id'] and config['tenant_id'] and config['client_secret'])
     has_token = bool(config and config['access_token'] and len(config['access_token']) > 10)
-    
-    print(f"=== STATUS DEBUG ===")
-    print(f"Config exists: {bool(config)}")
-    print(f"Has credentials: {has_credentials}")
-    print(f"Has token: {has_token}")
-    if config and config['access_token']:
-        print(f"Token length: {len(config['access_token'])}")
-        print(f"Token preview: {config['access_token'][:50]}...")
     
     return jsonify({
         'online': True, 
@@ -327,15 +332,11 @@ def auth():
         if not app_msal:
             return '''
             <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">Configuration Missing</h2>
-                <p>Please save your Azure credentials first.</p>
-                <button onclick="window.close()" style="padding: 10px 20px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
+                <h2 style="color: #d32f2f;">Configuração Ausente</h2>
+                <p>Configure suas credenciais Azure primeiro.</p>
+                <button onclick="window.close()">Fechar</button>
             </div>
             ''', 400
-        
-        # Usar uma abordagem mais simples - sem validação de estado
-        # Para resolver problemas de sessão em popups
-        print("Gerando URL de autenticação sem validação de estado")
         
         auth_url = app_msal.get_authorization_request_url(
             GRAPH_SCOPES,
@@ -344,71 +345,26 @@ def auth():
         
         return redirect(auth_url)
         
-    except ValueError as ve:
-        error_msg = str(ve)
-        if "invalid_tenant" in error_msg.lower() or "authority" in error_msg.lower():
-            return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">Invalid Tenant ID</h2>
-                <p>The Tenant ID you provided is incorrect or doesn't exist.</p>
-                <p>Please get the correct Tenant ID from Azure Portal:</p>
-                <ol style="text-align: left; display: inline-block;">
-                    <li>Go to portal.azure.com</li>
-                    <li>Navigate to "Microsoft Entra ID"</li>
-                    <li>Look for "Tenant information"</li>
-                    <li>Copy the correct "Directory (tenant) ID"</li>
-                </ol>
-                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
-            </div>
-            ''', 400
-        else:
-            return f'Configuration Error: {error_msg}', 500
     except Exception as e:
         print(f"Erro na autenticação: {e}")
-        return f'Authentication Error: {str(e)}', 500
+        return f'Erro de autenticação: {str(e)}', 500
 
 @app.route('/callback')
 def callback():
-    """Processa o callback de autenticação OAuth2"""
     try:
-        # Verificar parâmetros
         code = request.args.get('code')
         error = request.args.get('error')
         
         if error:
-            return f'''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">Authentication Error</h2>
-                <p>Error: {error}</p>
-                <p>Description: {request.args.get('error_description', 'No description available')}</p>
-                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
-            </div>
-            '''
+            return f'<h2>Erro de Autenticação</h2><p>{error}</p>'
         
         if not code:
-            return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">Missing Authorization Code</h2>
-                <p>No authorization code received from Azure.</p>
-                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
-            </div>
-            '''
+            return '<h2>Código de autorização ausente</h2>'
         
-        print(f"Código de autorização recebido: {code[:20]}...")
-        
-        # Obter aplicação MSAL
         app_msal = get_msal_app()
         if not app_msal:
-            return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">Configuration Error</h2>
-                <p>MSAL application not configured.</p>
-                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
-            </div>
-            '''
+            return '<h2>Erro de configuração MSAL</h2>'
         
-        # Trocar código por token
-        print("Trocando código por token de acesso...")
         result = app_msal.acquire_token_by_authorization_code(
             code,
             scopes=GRAPH_SCOPES,
@@ -416,9 +372,6 @@ def callback():
         )
         
         if "access_token" in result:
-            print("Token de acesso obtido com sucesso!")
-            
-            # Salvar token no banco de dados
             conn = get_db()
             conn.execute('''
                 UPDATE config SET 
@@ -434,46 +387,18 @@ def callback():
             conn.commit()
             conn.close()
             
-            print("Token salvo no banco de dados")
-            
             return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial; background: linear-gradient(135deg, #0a0a0a, #1a1a2e); color: white; min-height: 100vh; display: flex; align-items: center; justify-content: center;">
-                <div style="background: rgba(0, 255, 255, 0.1); border: 2px solid #00ffff; border-radius: 15px; padding: 40px; box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);">
-                    <h2 style="color: #00ffff; font-family: 'Orbitron', monospace;">AUTHENTICATION SUCCESSFUL</h2>
-                    <p style="margin: 20px 0; font-size: 16px;">Your Space Mirror credentials have been validated and stored securely.</p>
-                    <p style="margin: 20px 0; color: #00ff00;">System is now ready to sync with your Outlook Calendar!</p>
-                    <button onclick="window.close()" style="padding: 15px 30px; background: linear-gradient(45deg, #00ffff, #ff00ff); color: #000; border: none; border-radius: 8px; cursor: pointer; font-family: 'Orbitron', monospace; font-weight: bold; text-transform: uppercase;">Close Window</button>
-                </div>
+            <div style="text-align: center; margin: 50px; font-family: Arial; color: green;">
+                <h2>Autenticação Concluída</h2>
+                <p>Sistema pronto para sincronizar com Outlook Calendar</p>
+                <button onclick="window.close()">Fechar</button>
             </div>
             '''
         else:
-            error_desc = result.get("error_description", "Unknown error during token exchange")
-            print(f"Erro na troca do token: {error_desc}")
-            
-            return f'''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">Token Exchange Failed</h2>
-                <p>Error: {result.get("error", "unknown_error")}</p>
-                <p>Description: {error_desc}</p>
-                <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
-            </div>
-            '''
+            return f'<h2>Falha na troca do token</h2><p>{result.get("error_description", "Erro desconhecido")}</p>'
             
     except Exception as e:
-        print(f"Erro no callback: {e}")
-        return f'''
-        <div style="text-align: center; margin: 50px; font-family: Arial;">
-            <h2 style="color: #d32f2f;">Callback Error</h2>
-            <p>An error occurred while processing the authentication callback.</p>
-            <p>Details: {str(e)}</p>
-            <button onclick="window.close()" style="padding: 10px 20px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">Close Window</button>
-        </div>
-        '''
-
-@app.route('/api/complete-auth', methods=['POST'])
-def complete_auth():
-    # Esta rota não é mais necessária com o callback funcionando
-    return jsonify({'success': False, 'error': 'Use OAuth2 callback flow instead'})
+        return f'<h2>Erro no callback</h2><p>{str(e)}</p>'
 
 @app.route('/api/events')
 def events():
@@ -504,42 +429,37 @@ def approve_device(registration_id):
     mqtt_manager.client.publish(f"{TOPIC_PREFIX}/registration", json.dumps(response))
     mqtt_manager.sync_device(device_id)
     
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'device_id': device_id})
 
 @app.route('/api/sync/<device_id>', methods=['POST'])
 def sync_device(device_id):
-    mqtt_manager.sync_device(device_id)
-    return jsonify({'success': True})
+    success = mqtt_manager.sync_device(device_id)
+    return jsonify({'success': success})
 
+# Sincronização automática a cada hora
 def auto_sync():
     while True:
-        time.sleep(1800)  # 30 minutos
+        time.sleep(3600)
         try:
             conn = get_db()
             devices = conn.execute('SELECT device_id FROM devices WHERE status = "approved"').fetchall()
             conn.close()
+            
             for device in devices:
                 mqtt_manager.sync_device(device['device_id'])
-        except:
-            pass
+                time.sleep(1)
+        except Exception as e:
+            print(f"Erro na sincronização automática: {e}")
 
 threading.Thread(target=auto_sync, daemon=True).start()
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("Magic Mirror Backend - AUTENTICAÇÃO CORRIGIDA")
+    print("Magic Mirror Backend - Sistema de Produção")
     print("=" * 50)
-    print("✅ OAuth2 callback flow implementado!")
-    print(f"📡 MQTT: {MQTT_BROKER} (público)")
-    print(f"🏷️ Tópico: {TOPIC_PREFIX}")
-    print("🌐 Acesse: http://localhost:5000")
-    print("=" * 50)
-    
-    # Debug: Mostrar rotas registradas
-    print("Rotas API disponíveis:")
-    for rule in app.url_map.iter_rules():
-        if rule.rule.startswith('/api') or rule.rule == '/callback':
-            print(f"  {rule.methods} {rule.rule}")
+    print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT}")
+    print(f"Tópico: {TOPIC_PREFIX}")
+    print("Acesse: http://localhost:5000")
     print("=" * 50)
     
     app.run(host='0.0.0.0', port=5000, debug=False)
