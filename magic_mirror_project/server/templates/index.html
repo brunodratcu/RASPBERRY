@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SPACE MIRROR - Boarding Pass Configuration</title>
+    <title>SPACE MIRROR - Configuração do Passe de Embarque</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;500;600&display=swap');
 
@@ -36,7 +36,7 @@
             position: relative;
         }
 
-        /* Animated space background */
+        /* Fundo espacial animado */
         body::before {
             content: '';
             position: fixed;
@@ -61,7 +61,7 @@
             100% { transform: translate(-100px, -100px) rotate(360deg); }
         }
 
-        /* Floating particles */
+        /* Partículas flutuantes */
         .particle {
             position: fixed;
             width: 3px;
@@ -88,7 +88,7 @@
             z-index: 1;
         }
 
-        /* Header with space theme */
+        /* Cabeçalho com tema espacial */
         .header {
             text-align: center;
             margin-bottom: 50px;
@@ -129,7 +129,7 @@
             100% { filter: drop-shadow(0 0 40px var(--secondary-glow)); }
         }
 
-        /* Navigation tabs - futuristic */
+        /* Abas de navegação - futuristas */
         .nav-tabs {
             display: flex;
             justify-content: center;
@@ -184,7 +184,7 @@
             box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
         }
 
-        /* Tab content */
+        /* Conteúdo das abas */
         .tab-content {
             display: none;
         }
@@ -199,7 +199,7 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Cards with holographic effect */
+        /* Cards com efeito holográfico */
         .space-card {
             background: var(--bg-panel);
             border: 2px solid var(--border-glow);
@@ -242,7 +242,7 @@
             letter-spacing: 2px;
         }
 
-        /* Form elements with cyber styling */
+        /* Elementos de formulário com estilo cyber */
         .form-group {
             margin-bottom: 25px;
             position: relative;
@@ -290,7 +290,7 @@
             opacity: 0.7;
         }
 
-        /* Futuristic buttons */
+        /* Botões futuristas */
         .btn {
             background: linear-gradient(45deg, var(--primary-glow), var(--secondary-glow));
             color: var(--bg-space);
@@ -360,7 +360,7 @@
             min-width: 100px;
         }
 
-        /* Device management styles */
+        /* Estilos de gerenciamento de dispositivos */
         .device-card {
             background: var(--bg-panel);
             border: 2px solid var(--border-glow);
@@ -431,7 +431,7 @@
             margin-bottom: 10px;
         }
 
-        /* Tutorial steps */
+        /* Passos do tutorial */
         .tutorial-container {
             display: grid;
             gap: 25px;
@@ -500,7 +500,7 @@
             white-space: pre-wrap;
         }
 
-        /* Modal styling */
+        /* Estilo do modal */
         .modal {
             display: none;
             position: fixed;
@@ -560,7 +560,7 @@
             color: var(--primary-glow);
         }
 
-        /* Notification system */
+        /* Sistema de notificações */
         .notification {
             position: fixed;
             top: 30px;
@@ -599,7 +599,7 @@
             box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
         }
 
-        /* Responsive design */
+        /* Design responsivo */
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 2.5em;
@@ -619,7 +619,7 @@
             }
         }
 
-        /* Custom scrollbar */
+        /* Barra de rolagem personalizada */
         ::-webkit-scrollbar {
             width: 12px;
         }
@@ -640,7 +640,7 @@
     </style>
 </head>
 <body>
-    <!-- Floating particles for atmosphere -->
+    <!-- Partículas flutuantes para atmosfera -->
     <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
     <div class="particle" style="left: 20%; animation-delay: 2s;"></div>
     <div class="particle" style="left: 30%; animation-delay: 4s;"></div>
@@ -651,210 +651,237 @@
     <div class="particle" style="left: 80%; animation-delay: 14s;"></div>
 
     <div class="container">
-        <!-- Header -->
+        <!-- Cabeçalho -->
         <div class="header">
             <h1>SPACE MIRROR</h1>
-            <div class="subtitle">Boarding Pass Configuration System</div>
-            <div class="mission-code">MISSION CODE: SM-2025-AZURE</div>
+            <div class="subtitle">Sistema de Configuração do Passe de Embarque</div>
+            <div class="mission-code">CÓDIGO DA MISSÃO: SM-2025-AZURE</div>
         </div>
 
-        <!-- Navigation Tabs -->
+        <!-- Abas de Navegação -->
         <div class="nav-tabs">
             <button class="nav-tab active" onclick="switchTab('boarding')">
-                BOARDING PASS SETUP
+                CONFIGURAÇÃO DO PASSE
             </button>
             <button class="nav-tab" onclick="switchTab('devices')">
-                DEVICE SYNC
+                SINCRONIZAÇÃO DE DISPOSITIVOS
             </button>
             <button class="nav-tab" onclick="switchTab('credentials')">
-                AZURE CREDENTIALS
+                CREDENCIAIS AZURE
             </button>
         </div>
 
-        <!-- Boarding Pass Setup Tab -->
+        <!-- Aba de Configuração do Passe de Embarque -->
         <div id="boarding" class="tab-content active">
             <div class="space-card">
-                <h3>AZURE AD AUTHENTICATION MODULE</h3>
+                <h3>MÓDULO DE AUTENTICAÇÃO AZURE AD</h3>
                 <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
-                    Initialize your personal boarding credentials for the Space Mirror journey
+                    Inicialize suas credenciais pessoais de embarque para a jornada Space Mirror
                 </p>
                 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px;">
                     <div class="form-group">
-                        <label for="clientId">CLIENT ID (APPLICATION IDENTIFIER)</label>
+                        <label for="clientId">ID DO CLIENTE (IDENTIFICADOR DA APLICAÇÃO)</label>
                         <input type="text" id="clientId" placeholder="12345678-1234-1234-1234-123456789012">
                     </div>
                     <div class="form-group">
-                        <label for="tenantId">TENANT ID (DIRECTORY IDENTIFIER)</label>
+                        <label for="tenantId">ID DO LOCATÁRIO (IDENTIFICADOR DO DIRETÓRIO)</label>
                         <input type="text" id="tenantId" placeholder="87654321-4321-4321-4321-210987654321">
                     </div>
                     <div class="form-group">
-                        <label for="clientSecret">CLIENT SECRET (AUTHORIZATION KEY)</label>
-                        <input type="password" id="clientSecret" placeholder="Enter your secret authorization key">
+                        <label for="clientSecret">SEGREDO DO CLIENTE (CHAVE DE AUTORIZAÇÃO)</label>
+                        <input type="password" id="clientSecret" placeholder="Digite sua chave secreta de autorização">
                     </div>
                 </div>
 
                 <div style="display: flex; gap: 20px; justify-content: center; margin-top: 30px; flex-wrap: wrap;">
                     <button class="btn" onclick="testConnection()">
-                        RUN SYSTEM CHECK
+                        EXECUTAR VERIFICAÇÃO DO SISTEMA
                     </button>
                     <button class="btn btn-success" onclick="saveConfiguration()">
-                        INITIALIZE BOARDING PASS
+                        INICIALIZAR PASSE DE EMBARQUE
                     </button>
                 </div>
             </div>
 
-            <!-- Mission Status -->
+            <!-- Status da Missão -->
             <div class="space-card">
-                <h3>MISSION STATUS</h3>
+                <h3>STATUS DA MISSÃO</h3>
                 <div id="systemStatus" style="text-align: center; padding: 20px;">
-                    <div style="color: var(--text-secondary);">Initializing systems...</div>
+                    <div style="color: var(--text-secondary);">Inicializando sistemas...</div>
                 </div>
             </div>
         </div>
 
-        <!-- Device Sync Tab -->
+        <!-- Aba de Sincronização de Dispositivos -->
         <div id="devices" class="tab-content">
             <div class="space-card">
-                <h3>MQTT DEVICE SYNCHRONIZATION</h3>
+                <h3>SINCRONIZAÇÃO DE DISPOSITIVOS MQTT</h3>
                 <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
-                    Monitor and manage connected Pico 2W devices for calendar synchronization
+                    Monitore e gerencie dispositivos Pico 2W conectados para sincronização de calendário
                 </p>
 
                 <div style="display: flex; gap: 20px; justify-content: center; margin-bottom: 30px; flex-wrap: wrap;">
                     <button class="btn" onclick="scanForDevices()">
-                        SCAN FOR DEVICES
+                        PROCURAR DISPOSITIVOS
                     </button>
                     <button class="btn btn-outline" onclick="refreshDeviceList()">
-                        REFRESH LIST
+                        ATUALIZAR LISTA
                     </button>
                 </div>
 
                 <div id="deviceScanStatus" style="text-align: center; margin-bottom: 20px; color: var(--text-secondary);">
-                    Click "SCAN FOR DEVICES" to search for Pico 2W devices
+                    Clique em "PROCURAR DISPOSITIVOS" para buscar dispositivos Pico 2W
                 </div>
 
                 <div id="deviceList">
-                    <!-- Devices will be populated here -->
+                    <!-- Dispositivos serão populados aqui -->
                 </div>
             </div>
 
-            <!-- Connection Guide -->
+            <!-- Guia de Conexão -->
             <div class="space-card">
-                <h3>PICO 2W CONNECTION PROTOCOL</h3>
+                <h3>PROTOCOLO DE CONEXÃO PICO 2W</h3>
                 <div class="tutorial-steps">
                     <div class="tutorial-step">
-                        <div class="step-title">CONFIGURE PERMISSIONS</div>
+                        <div class="step-title">CONFIGURAR APLICAÇÃO</div>
                         <div class="step-description">
-                            Go to "API permissions" → "Add a permission" → "Microsoft Graph" → "Delegated permissions"
+                            Configure sua aplicação com estes parâmetros:
                         </div>
-                        <div class="step-code">Required permissions:
+                        <div class="step-code">Nome: Space Mirror - [Seu Nome]
+Tipos de conta: Contas em qualquer diretório organizacional e contas pessoais da Microsoft
+URI de Redirecionamento: http://localhost:5000/callback</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">EXTRAIR IDENTIFICADORES</div>
+                        <div class="step-description">
+                            Na página de Visão Geral, copie estes valores críticos:
+                        </div>
+                        <div class="step-code">• ID da Aplicação (cliente) → ID DO CLIENTE
+• ID do Diretório (locatário) → ID DO LOCATÁRIO</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">GERAR CHAVE SECRETA</div>
+                        <div class="step-description">
+                            Navegue para "Certificados e segredos" → "Segredos do cliente" → "Novo segredo do cliente"
+                        </div>
+                        <div class="step-code">Copie o VALOR SECRETO imediatamente - ele só aparece uma vez!</div>
+                    </div>
+
+                    <div class="tutorial-step">
+                        <div class="step-title">CONFIGURAR PERMISSÕES</div>
+                        <div class="step-description">
+                            Vá para "Permissões da API" → "Adicionar uma permissão" → "Microsoft Graph" → "Permissões delegadas"
+                        </div>
+                        <div class="step-code">Permissões necessárias:
 • Calendars.Read
 • User.Read
 
-Then click "Grant admin consent"</div>
+Em seguida, clique em "Conceder consentimento do administrador"</div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Credentials Guide Modal -->
+    <!-- Modal do Guia de Credenciais -->
     <div id="credentialsModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title">AZURE CREDENTIALS EXTRACTION</h3>
+                <h3 class="modal-title">EXTRAÇÃO DE CREDENCIAIS AZURE</h3>
                 <button class="close-btn" onclick="closeCredentialsGuide()">&times;</button>
             </div>
             
             <div class="tutorial-steps">
                 <div class="tutorial-step">
-                    <div class="step-title">PORTAL ACCESS</div>
+                    <div class="step-title">ACESSO AO PORTAL</div>
                     <div class="step-description">
-                        Open your web browser and navigate to the Azure Portal. Sign in with your Microsoft account credentials.
+                        Abra seu navegador web e navegue até o Portal Azure. Faça login com suas credenciais da conta Microsoft.
                     </div>
                     <div class="step-code">URL: https://portal.azure.com</div>
                 </div>
 
                 <div class="tutorial-step">
-                    <div class="step-title">DIRECTORY NAVIGATION</div>
+                    <div class="step-title">NAVEGAÇÃO NO DIRETÓRIO</div>
                     <div class="step-description">
-                        In the search bar at the top, type "entra id" and select "Microsoft Entra ID" from the results.
+                        Na barra de pesquisa no topo, digite "entra id" e selecione "Microsoft Entra ID" dos resultados.
                     </div>
                 </div>
 
                 <div class="tutorial-step">
-                    <div class="step-title">APPLICATION REGISTRY</div>
+                    <div class="step-title">REGISTRO DE APLICAÇÃO</div>
                     <div class="step-description">
-                        In the left sidebar, locate and click on "App registrations".
+                        Na barra lateral esquerda, localize e clique em "Registros de aplicativo".
                     </div>
                 </div>
 
                 <div class="tutorial-step">
-                    <div class="step-title">NEW REGISTRATION</div>
+                    <div class="step-title">NOVO REGISTRO</div>
                     <div class="step-description">
-                        Click the "New registration" button to create a new application.
+                        Clique no botão "Novo registro" para criar uma nova aplicação.
                     </div>
                 </div>
 
                 <div class="tutorial-step">
-                    <div class="step-title">APPLICATION CONFIGURATION</div>
+                    <div class="step-title">CONFIGURAÇÃO DA APLICAÇÃO</div>
                     <div class="step-description">
-                        Fill in the registration form with these exact values:
+                        Preencha o formulário de registro com estes valores exatos:
                     </div>
-                    <div class="step-code">Name: Space Mirror - [Your Name]
+                    <div class="step-code">Nome: Space Mirror - [Seu Nome]
 
-Supported account types: 
-"Accounts in any organizational directory and personal Microsoft accounts"
+Tipos de conta com suporte: 
+"Contas em qualquer diretório organizacional e contas pessoais da Microsoft"
 
-Redirect URI (optional): 
-Platform: Web
+URI de Redirecionamento (opcional): 
+Plataforma: Web
 URL: http://localhost:5000/callback</div>
                 </div>
 
                 <div class="tutorial-step">
-                    <div class="step-title">CREDENTIAL EXTRACTION</div>
+                    <div class="step-title">EXTRAÇÃO DE CREDENCIAIS</div>
                     <div class="step-description">
-                        After creating the app, you'll be on the Overview page. Copy these two values:
+                        Após criar o aplicativo, você estará na página de Visão Geral. Copie estes dois valores:
                     </div>
-                    <div class="step-code">• Application (client) ID → This is your CLIENT ID
-• Directory (tenant) ID → This is your TENANT ID</div>
+                    <div class="step-code">• ID da Aplicação (cliente) → Este é seu ID DO CLIENTE
+• ID do Diretório (locatário) → Este é seu ID DO LOCATÁRIO</div>
                 </div>
 
                 <div class="tutorial-step">
-                    <div class="step-title">SECRET GENERATION</div>
+                    <div class="step-title">GERAÇÃO DE SEGREDO</div>
                     <div class="step-description">
-                        In the left sidebar, click "Certificates & secrets", then click "New client secret".
-                        Add a description and set expiration, then click "Add".
+                        Na barra lateral esquerda, clique em "Certificados e segredos", depois clique em "Novo segredo do cliente".
+                        Adicione uma descrição e defina a expiração, depois clique em "Adicionar".
                     </div>
-                    <div class="step-code">⚠️ CRITICAL: Copy the "Value" field immediately!
-This secret will never be shown again.</div>
+                    <div class="step-code">⚠️ CRÍTICO: Copie o campo "Valor" imediatamente!
+Este segredo nunca será mostrado novamente.</div>
                 </div>
 
                 <div class="tutorial-step">
-                    <div class="step-title">PERMISSION CONFIGURATION</div>
+                    <div class="step-title">CONFIGURAÇÃO DE PERMISSÕES</div>
                     <div class="step-description">
-                        Click "API permissions" in the left sidebar, then "Add a permission".
-                        Select "Microsoft Graph" → "Delegated permissions".
+                        Clique em "Permissões da API" na barra lateral esquerda, depois "Adicionar uma permissão".
+                        Selecione "Microsoft Graph" → "Permissões delegadas".
                     </div>
-                    <div class="step-code">Add these permissions:
+                    <div class="step-code">Adicione estas permissões:
 • Calendars.Read
 • User.Read
 
-Then click "Grant admin consent for [Directory]"</div>
+Depois clique em "Conceder consentimento do administrador para [Diretório]"</div>
                 </div>
             </div>
 
             <div style="text-align: center; margin-top: 30px;">
                 <button class="btn btn-success" onclick="closeCredentialsGuide()">
-                    MISSION UNDERSTOOD
+                    MISSÃO COMPREENDIDA
                 </button>
             </div>
         </div>
     </div>
 
     <script>
-        // Initialize particles animation
+        // Inicializar animação de partículas
         function createParticles() {
             const particleCount = 8;
             for (let i = 0; i < particleCount; i++) {
@@ -873,26 +900,26 @@ Then click "Grant admin consent for [Directory]"</div>
             }
         }
 
-        // Tab switching functionality
+        // Funcionalidade de troca de abas
         function switchTab(tabName) {
-            // Hide all tab contents
+            // Ocultar todos os conteúdos das abas
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
             
-            // Remove active class from all tabs
+            // Remover classe ativa de todas as abas
             document.querySelectorAll('.nav-tab').forEach(tab => {
                 tab.classList.remove('active');
             });
             
-            // Show selected tab content
+            // Mostrar conteúdo da aba selecionada
             document.getElementById(tabName).classList.add('active');
             
-            // Add active class to clicked tab
+            // Adicionar classe ativa à aba clicada
             event.target.classList.add('active');
         }
 
-        // Credentials guide modal
+        // Modal do guia de credenciais
         function openCredentialsGuide() {
             document.getElementById('credentialsModal').classList.add('show');
         }
@@ -901,7 +928,7 @@ Then click "Grant admin consent for [Directory]"</div>
             document.getElementById('credentialsModal').classList.remove('show');
         }
 
-        // Configuration functions
+        // Funções de configuração
         async function saveConfiguration() {
             const config = {
                 clientId: document.getElementById('clientId').value,
@@ -910,7 +937,7 @@ Then click "Grant admin consent for [Directory]"</div>
             };
             
             if (!config.clientId || !config.tenantId || !config.clientSecret) {
-                showNotification('All boarding pass credentials are required', 'error');
+                showNotification('Todas as credenciais do passe de embarque são obrigatórias', 'error');
                 return;
             }
             
@@ -922,13 +949,13 @@ Then click "Grant admin consent for [Directory]"</div>
                 });
                 
                 if (response.ok) {
-                    showNotification('Boarding pass initialized successfully!', 'success');
+                    showNotification('Passe de embarque inicializado com sucesso!', 'success');
                     updateSystemStatus();
                 } else {
-                    showNotification('Failed to initialize boarding pass', 'error');
+                    showNotification('Falha ao inicializar passe de embarque', 'error');
                 }
             } catch (error) {
-                showNotification('System error during initialization', 'error');
+                showNotification('Erro do sistema durante a inicialização', 'error');
             }
         }
 
@@ -938,12 +965,12 @@ Then click "Grant admin consent for [Directory]"</div>
             const clientSecret = document.getElementById('clientSecret').value.trim();
             
             if (!clientId || !tenantId || !clientSecret) {
-                showNotification('Enter all credentials before running system check', 'error');
+                showNotification('Digite todas as credenciais antes de executar a verificação do sistema', 'error');
                 return;
             }
 
             try {
-                showNotification('Saving credentials...', 'info');
+                showNotification('Salvando credenciais...', 'info');
                 
                 const saveResponse = await fetch('/api/config', {
                     method: 'POST',
@@ -959,25 +986,25 @@ Then click "Grant admin consent for [Directory]"</div>
                 });
                 
                 if (!saveResponse.ok) {
-                    throw new Error(`Failed to save configuration: ${saveResponse.status}`);
+                    throw new Error(`Falha ao salvar configuração: ${saveResponse.status}`);
                 }
                 
-                showNotification('Configuration saved! Opening authentication...', 'success');
+                showNotification('Configuração salva! Abrindo autenticação...', 'success');
                 
                 setTimeout(() => {
                     const authWindow = window.open('/api/auth', 'auth', 'width=600,height=700,scrollbars=yes,resizable=yes');
                     
                     if (!authWindow) {
-                        showNotification('Popup blocked! Please allow popups for this site', 'error');
+                        showNotification('Popup bloqueado! Por favor, permita popups para este site', 'error');
                         return;
                     }
                     
-                    showNotification('Complete the authentication in the popup window', 'info');
+                    showNotification('Complete a autenticação na janela popup', 'info');
                     
                     const checkClosed = setInterval(() => {
                         if (authWindow.closed) {
                             clearInterval(checkClosed);
-                            showNotification('Authentication window closed - updating status...', 'info');
+                            showNotification('Janela de autenticação fechada - atualizando status...', 'info');
                             
                             setTimeout(() => {
                                 updateSystemStatus();
@@ -989,8 +1016,8 @@ Then click "Grant admin consent for [Directory]"</div>
                 }, 500);
                 
             } catch (error) {
-                console.error('Test connection error:', error);
-                showNotification(`System check failed: ${error.message}`, 'error');
+                console.error('Erro no teste de conexão:', error);
+                showNotification(`Verificação do sistema falhou: ${error.message}`, 'error');
             }
         }
 
@@ -1004,7 +1031,7 @@ Then click "Grant admin consent for [Directory]"</div>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
                         <div style="text-align: center;">
                             <div style="font-size: 2em; color: ${status.online ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.online ? '✓' : '✗'}</div>
-                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">SYSTEM</div>
+                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">SISTEMA</div>
                         </div>
                         <div style="text-align: center;">
                             <div style="font-size: 2em; color: ${status.mqtt ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.mqtt ? '✓' : '✗'}</div>
@@ -1012,34 +1039,34 @@ Then click "Grant admin consent for [Directory]"</div>
                         </div>
                         <div style="text-align: center;">
                             <div style="font-size: 2em; color: ${status.has_azure_config ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.has_azure_config ? '✓' : '✗'}</div>
-                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">CREDENTIALS</div>
+                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">CREDENCIAIS</div>
                         </div>
                         <div style="text-align: center;">
                             <div style="font-size: 2em; color: ${status.has_token ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.has_token ? '✓' : '✗'}</div>
-                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">AUTH TOKEN</div>
+                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">TOKEN DE AUTH</div>
                         </div>
                     </div>
                     <div style="margin-top: 20px; padding: 15px; background: rgba(0, 40, 80, 0.3); border-radius: 8px; border: 1px solid var(--border-glow);">
-                        <div style="color: var(--text-accent); font-family: 'Orbitron', monospace; font-size: 14px;">MISSION IDENTIFIER</div>
+                        <div style="color: var(--text-accent); font-family: 'Orbitron', monospace; font-size: 14px;">IDENTIFICADOR DA MISSÃO</div>
                         <div style="color: var(--text-primary); font-family: 'Courier New', monospace; margin-top: 5px;">${status.topic_prefix}</div>
                     </div>
                 `;
             } catch (error) {
                 document.getElementById('systemStatus').innerHTML = `
                     <div style="color: var(--error-glow); text-align: center;">
-                        System status unavailable
+                        Status do sistema indisponível
                     </div>
                 `;
             }
         }
 
-        // Device management functions
+        // Funções de gerenciamento de dispositivos
         async function scanForDevices() {
             const statusDiv = document.getElementById('deviceScanStatus');
             statusDiv.innerHTML = `
                 <div style="color: var(--primary-glow); display: flex; align-items: center; justify-content: center; gap: 10px;">
                     <div style="animation: pulse-glow 1s ease-in-out infinite;">🔍</div>
-                    Scanning for Pico 2W devices...
+                    Procurando dispositivos Pico 2W...
                 </div>
             `;
             
@@ -1049,14 +1076,14 @@ Then click "Grant admin consent for [Directory]"</div>
                 setTimeout(() => {
                     statusDiv.innerHTML = `
                         <div style="color: var(--success-glow);">
-                            Scan completed. Check device list below.
+                            Busca concluída. Verifique a lista de dispositivos abaixo.
                         </div>
                     `;
                 }, 2000);
             } catch (error) {
                 statusDiv.innerHTML = `
                     <div style="color: var(--error-glow);">
-                        Scan failed: ${error.message}
+                        Busca falhou: ${error.message}
                     </div>
                 `;
             }
@@ -1073,15 +1100,15 @@ Then click "Grant admin consent for [Directory]"</div>
                     deviceListDiv.innerHTML = `
                         <div style="text-align: center; padding: 30px; color: var(--text-secondary);">
                             <div style="font-size: 3em; margin-bottom: 10px;">📡</div>
-                            <div>No devices detected yet</div>
-                            <div style="font-size: 0.9em; margin-top: 10px;">Make sure your Pico 2W is connected and running the client code</div>
+                            <div>Nenhum dispositivo detectado ainda</div>
+                            <div style="font-size: 0.9em; margin-top: 10px;">Certifique-se de que seu Pico 2W está conectado e executando o código cliente</div>
                         </div>
                     `;
                 } else {
                     deviceListDiv.innerHTML = devices.map(device => createDeviceCard(device)).join('');
                 }
             } catch (error) {
-                showNotification('Failed to load device list', 'error');
+                showNotification('Falha ao carregar lista de dispositivos', 'error');
             }
         }
 
@@ -1092,20 +1119,23 @@ Then click "Grant admin consent for [Directory]"</div>
             const statusIcon = device.status === 'approved' ? '✓' : 
                               device.status === 'pending' ? '⏳' : '✗';
             
+            const statusText = device.status === 'approved' ? 'APROVADO' : 
+                              device.status === 'pending' ? 'PENDENTE' : 'ERRO';
+            
             return `
                 <div class="space-card" style="margin-bottom: 20px; border-color: ${statusColor};">
                     <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 20px; align-items: center;">
                         <div>
                             <div style="color: var(--primary-glow); font-family: 'Orbitron', monospace; font-weight: 600; margin-bottom: 8px;">
-                                DEVICE: ${device.device_id || 'Pending Assignment'}
+                                DISPOSITIVO: ${device.device_id || 'Aguardando Atribuição'}
                             </div>
                             <div style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 5px;">
-                                Registration ID: ${device.registration_id}
+                                ID de Registro: ${device.registration_id}
                             </div>
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span style="color: ${statusColor}; font-size: 1.2em;">${statusIcon}</span>
                                 <span style="color: ${statusColor}; font-family: 'Orbitron', monospace; text-transform: uppercase;">
-                                    ${device.status}
+                                    ${statusText}
                                 </span>
                             </div>
                         </div>
@@ -1113,11 +1143,11 @@ Then click "Grant admin consent for [Directory]"</div>
                         <div style="text-align: center;">
                             ${device.status === 'pending' ? `
                                 <button class="btn btn-success" onclick="approveDevice('${device.registration_id}')" style="font-size: 12px; padding: 10px 20px;">
-                                    APPROVE
+                                    APROVAR
                                 </button>
                             ` : device.status === 'approved' ? `
                                 <button class="btn" onclick="syncDevice('${device.device_id}')" style="font-size: 12px; padding: 10px 20px;">
-                                    SYNC NOW
+                                    SINCRONIZAR AGORA
                                 </button>
                             ` : ''}
                         </div>
@@ -1134,19 +1164,19 @@ Then click "Grant admin consent for [Directory]"</div>
                 
                 if (response.ok) {
                     const result = await response.json();
-                    showNotification(`Device approved: ${result.device_id}`, 'success');
+                    showNotification(`Dispositivo aprovado: ${result.device_id}`, 'success');
                     refreshDeviceList();
                 } else {
-                    showNotification('Failed to approve device', 'error');
+                    showNotification('Falha ao aprovar dispositivo', 'error');
                 }
             } catch (error) {
-                showNotification('Error approving device', 'error');
+                showNotification('Erro ao aprovar dispositivo', 'error');
             }
         }
 
         async function syncDevice(deviceId) {
             try {
-                showNotification('Synchronizing device...', 'info');
+                showNotification('Sincronizando dispositivo...', 'info');
                 
                 const response = await fetch(`/api/sync/${deviceId}`, {
                     method: 'POST'
@@ -1155,15 +1185,15 @@ Then click "Grant admin consent for [Directory]"</div>
                 if (response.ok) {
                     const result = await response.json();
                     if (result.success) {
-                        showNotification('Device synchronized successfully!', 'success');
+                        showNotification('Dispositivo sincronizado com sucesso!', 'success');
                     } else {
-                        showNotification('Synchronization failed', 'error');
+                        showNotification('Sincronização falhou', 'error');
                     }
                 } else {
-                    showNotification('Failed to sync device', 'error');
+                    showNotification('Falha ao sincronizar dispositivo', 'error');
                 }
             } catch (error) {
-                showNotification('Error during synchronization', 'error');
+                showNotification('Erro durante a sincronização', 'error');
             }
         }
 
@@ -1173,16 +1203,16 @@ Then click "Grant admin consent for [Directory]"</div>
                 const config = await response.json();
                 const topicInfoDiv = document.getElementById('topicInfo');
                 if (topicInfoDiv) {
-                    topicInfoDiv.textContent = `MQTT Broker: test.mosquitto.org:1883
-Registration Topic: ${config.topic_prefix}/registration
-Events Topic: ${config.topic_prefix}/devices/[device_id]/events`;
+                    topicInfoDiv.textContent = `Broker MQTT: test.mosquitto.org:1883
+Tópico de Registro: ${config.topic_prefix}/registration
+Tópico de Eventos: ${config.topic_prefix}/devices/[device_id]/events`;
                 }
             } catch (error) {
-                console.log('Could not update topic info');
+                console.log('Não foi possível atualizar informações do tópico');
             }
         }
 
-        // Notification system
+        // Sistema de notificações
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
@@ -1201,29 +1231,29 @@ Events Topic: ${config.topic_prefix}/devices/[device_id]/events`;
             }, 4000);
         }
 
-        // Modal close on outside click
+        // Fechar modal ao clicar fora
         document.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
                 e.target.classList.remove('show');
             }
         });
 
-        // Initialize system on load
+        // Inicializar sistema ao carregar
         document.addEventListener('DOMContentLoaded', () => {
             updateSystemStatus();
-            setInterval(updateSystemStatus, 30000); // Update every 30 seconds
+            setInterval(updateSystemStatus, 30000); // Atualizar a cada 30 segundos
             
-            // Start particle animation
+            // Iniciar animação de partículas
             createParticles();
-            setInterval(createParticles, 30000); // Create new particles every 30 seconds
+            setInterval(createParticles, 30000); // Criar novas partículas a cada 30 segundos
             
-            // Load existing configuration if any
+            // Carregar configuração existente se houver
             loadExistingConfig();
             
-            // Update topic information
+            // Atualizar informações do tópico
             updateTopicInfo();
             
-            // Auto-refresh device list every 10 seconds when on devices tab
+            // Auto-atualizar lista de dispositivos a cada 10 segundos quando na aba de dispositivos
             setInterval(() => {
                 const devicesTab = document.getElementById('devices');
                 if (devicesTab && devicesTab.classList.contains('active')) {
@@ -1243,13 +1273,13 @@ Events Topic: ${config.topic_prefix}/devices/[device_id]/events`;
                 if (config.tenant_id) {
                     document.getElementById('tenantId').value = config.tenant_id;
                 }
-                // Don't load client_secret for security reasons
+                // Não carregar client_secret por razões de segurança
             } catch (error) {
-                console.log('No existing config found');
+                console.log('Nenhuma configuração existente encontrada');
             }
         }
 
-        // Keyboard shortcuts
+        // Atalhos de teclado
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 document.querySelectorAll('.modal.show').forEach(modal => {
@@ -1258,7 +1288,7 @@ Events Topic: ${config.topic_prefix}/devices/[device_id]/events`;
             }
         });
 
-        // Enhanced visual effects
+        // Efeitos visuais aprimorados
         function addGlowEffect(element) {
             element.style.boxShadow = '0 0 30px var(--primary-glow)';
             setTimeout(() => {
@@ -1266,7 +1296,7 @@ Events Topic: ${config.topic_prefix}/devices/[device_id]/events`;
             }, 1000);
         }
 
-        // Add click effects to buttons
+        // Adicionar efeitos de clique aos botões
         document.addEventListener('click', (e) => {
             if (e.target.classList.contains('btn')) {
                 addGlowEffect(e.target);
@@ -1274,103 +1304,77 @@ Events Topic: ${config.topic_prefix}/devices/[device_id]/events`;
         });
     </script>
 </body>
-</html>DEVICE PREPARATION</div>
+</html>
+                        <div class="step-title">PREPARAÇÃO DO DISPOSITIVO</div>
                         <div class="step-description">
-                            Ensure your Pico 2W is running the Magic Mirror client firmware and connected to WiFi.
+                            Certifique-se de que seu Pico 2W está executando o firmware cliente Magic Mirror e conectado ao WiFi.
                         </div>
-                        <div class="step-code">Required: Pico 2W with MQTT client code
-WiFi connection with internet access</div>
+                        <div class="step-code">Necessário: Pico 2W com código cliente MQTT
+Conexão WiFi com acesso à internet</div>
                     </div>
 
                     <div class="tutorial-step">
-                        <div class="step-title">TOPIC CONFIGURATION</div>
+                        <div class="step-title">CONFIGURAÇÃO DE TÓPICOS</div>
                         <div class="step-description">
-                            The Pico 2W should connect to the MQTT broker and subscribe to the registration topic.
+                            O Pico 2W deve se conectar ao broker MQTT e se inscrever no tópico de registro.
                         </div>
-                        <div class="step-code" id="topicInfo">MQTT Broker: test.mosquitto.org:1883
-Registration Topic: [Loading...]</div>
+                        <div class="step-code" id="topicInfo">Broker MQTT: test.mosquitto.org:1883
+Tópico de Registro: [Carregando...]</div>
                     </div>
 
                     <div class="tutorial-step">
-                        <div class="step-title">DEVICE REGISTRATION</div>
+                        <div class="step-title">REGISTRO DO DISPOSITIVO</div>
                         <div class="step-description">
-                            The device will automatically appear in the scan results when it connects to MQTT.
+                            O dispositivo aparecerá automaticamente nos resultados da busca quando se conectar ao MQTT.
                         </div>
                     </div>
 
                     <div class="tutorial-step">
-                        <div class="step-title">APPROVAL PROCESS</div>
+                        <div class="step-title">PROCESSO DE APROVAÇÃO</div>
                         <div class="step-description">
-                            Once detected, approve the device to start receiving calendar events.
+                            Uma vez detectado, aprove o dispositivo para começar a receber eventos do calendário.
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Azure Credentials Guide Tab -->
+        <!-- Aba de Guia de Credenciais Azure -->
         <div id="credentials" class="tab-content">
             <div class="space-card">
-                <h3>AZURE CREDENTIALS ACQUISITION PROTOCOL</h3>
+                <h3>PROTOCOLO DE AQUISIÇÃO DE CREDENCIAIS AZURE</h3>
                 <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
-                    Follow this classified procedure to obtain your Azure boarding credentials
+                    Siga este procedimento classificado para obter suas credenciais de embarque Azure
                 </p>
 
                 <div style="text-align: center; margin-bottom: 30px;">
                     <button class="btn btn-outline" onclick="openCredentialsGuide()">
-                        ACCESS CREDENTIALS GUIDE
+                        ACESSAR GUIA DE CREDENCIAIS
                     </button>
                 </div>
 
                 <div class="tutorial-steps">
                     <div class="tutorial-step">
-                        <div class="step-title">ACCESS AZURE PORTAL</div>
+                        <div class="step-title">ACESSAR PORTAL AZURE</div>
                         <div class="step-description">
-                            Navigate to the Azure Command Center and authenticate with your Microsoft credentials
+                            Navegue até o Centro de Comando Azure e autentique com suas credenciais Microsoft
                         </div>
                         <div class="step-code">portal.azure.com</div>
                     </div>
 
                     <div class="tutorial-step">
-                        <div class="step-title">LOCATE APPLICATION REGISTRY</div>
+                        <div class="step-title">LOCALIZAR REGISTRO DE APLICAÇÕES</div>
                         <div class="step-description">
-                            In the Azure portal search bar, enter "entra id" and select "Microsoft Entra ID"
+                            Na barra de pesquisa do portal Azure, digite "entra id" e selecione "Microsoft Entra ID"
                         </div>
                     </div>
 
                     <div class="tutorial-step">
-                        <div class="step-title">CREATE APPLICATION REGISTRATION</div>
+                        <div class="step-title">CRIAR REGISTRO DE APLICAÇÃO</div>
                         <div class="step-description">
-                            Navigate to "App registrations" → Click "New registration"
+                            Navegue para "Registros de aplicativo" → Clique em "Novo registro"
                         </div>
                     </div>
 
                     <div class="tutorial-step">
-                        <div class="step-title">CONFIGURE APPLICATION</div>
-                        <div class="step-description">
-                            Set up your application with these parameters:
-                        </div>
-                        <div class="step-code">Name: Space Mirror - [Your Name]
-Account types: Accounts in any organizational directory and personal Microsoft accounts
-Redirect URI: http://localhost:5000/callback</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">EXTRACT IDENTIFIERS</div>
-                        <div class="step-description">
-                            From the Overview page, copy these critical values:
-                        </div>
-                        <div class="step-code">• Application (client) ID → CLIENT ID
-• Directory (tenant) ID → TENANT ID</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">GENERATE SECRET KEY</div>
-                        <div class="step-description">
-                            Navigate to "Certificates & secrets" → "Client secrets" → "New client secret"
-                        </div>
-                        <div class="step-code">Copy the SECRET VALUE immediately - it only appears once!</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">
+                        
