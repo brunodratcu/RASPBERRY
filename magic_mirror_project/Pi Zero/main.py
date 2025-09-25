@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Magic Mirror - Raspberry Pico 2W
+Magic Mirror - Raspberry Pico 2W - VERSÃO CORRIGIDA
 Sistema de relógio com sincronização MQTT e eventos do Outlook
+Correções: Topic prefix dinâmico e sincronização adequada
 """
 
 import machine
@@ -9,6 +10,7 @@ import utime
 import network
 import gc
 import json
+import ubinascii
 from machine import Pin, RTC
 
 # Importar configurações
@@ -34,8 +36,6 @@ if 'MQTT_PORT' not in globals():
     MQTT_PORT = 1883
 if 'TOPIC_PREFIX' not in globals():
     TOPIC_PREFIX = "magic_mirror_default"
-if 'DEVICE_ID' not in globals():
-    DEVICE_ID = "mirror_001"
 
 # Importar MQTT
 try:
@@ -52,7 +52,7 @@ try:
 except ImportError:
     NTP_AVAILABLE = False
 
-# Importar fontes
+# Importar fontes (mesmo código anterior)
 try:
     from font import FONT_8X8, get_char_bitmap
 except ImportError:
@@ -85,6 +85,7 @@ except ImportError:
         'D': [0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x00],
         'L': [0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00],
         'Z': [0x7E, 0x0E, 0x1C, 0x38, 0x70, 0x60, 0x7E, 0x00],
+        '-': [0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00],
     }
     
     def get_char_bitmap(char):
@@ -109,8 +110,21 @@ GREEN = 0x07E0
 BLUE = 0x001F
 CYAN = 0x07FF
 YELLOW = 0xFFE0
+ORANGE = 0xFD20
 
-# ==================== DISPLAY ====================
+# ==================== UTILITÁRIOS ====================
+def get_unique_device_id():
+    """Gerar ID único baseado na MAC address"""
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        mac = wlan.config('mac')
+        mac_str = ubinascii.hexlify(mac).decode()[-6:]
+        return f"PICO_{mac_str.upper()}"
+    except:
+        return f"PICO_{utime.ticks_ms() % 100000}"
+
+# ==================== DISPLAY (mesmo código anterior) ====================
 def write_byte(data):
     for i in range(8):
         data_pins[i].value((data >> i) & 1)
@@ -267,15 +281,20 @@ class NetworkManager:
         print("Todos servidores NTP falharam")
         return False
 
-# ==================== MQTT ====================
+# ==================== MQTT CORRIGIDO ====================
 class MQTTHandler:
-    def __init__(self, device_id, topic_prefix):
+    def __init__(self, device_id, initial_topic_prefix):
         self.device_id = device_id
-        self.topic_prefix = topic_prefix
+        self.registration_id = device_id  # ID usado para registro inicial
+        self.initial_topic_prefix = initial_topic_prefix
+        self.current_topic_prefix = initial_topic_prefix
+        self.assigned_device_id = None  # ID atribuído pelo servidor
         self.client = None
         self.connected = False
+        self.approved = False
         self.last_ping = 0
         self.events = []
+        self.last_registration_attempt = 0
         
     def connect(self, network_manager):
         if not MQTT_AVAILABLE or not network_manager.connected:
@@ -284,19 +303,18 @@ class MQTTHandler:
             
         try:
             print(f"Conectando MQTT: {MQTT_BROKER}:{MQTT_PORT}")
-            print(f"Topic Prefix: {self.topic_prefix}")
+            print(f"Device ID inicial: {self.device_id}")
+            print(f"Topic Prefix inicial: {self.initial_topic_prefix}")
             
             client_id = f"{self.device_id}_{utime.ticks_ms()}"
             self.client = MQTTClient(client_id, MQTT_BROKER, port=MQTT_PORT)
             self.client.set_callback(self.on_message)
             self.client.connect()
             
-            # Inscrever nos tópicos
-            topic1 = f"{self.topic_prefix}/devices/{self.device_id}/events"
-            topic2 = f"{self.topic_prefix}/registration"
-            
-            self.client.subscribe(topic1)
-            self.client.subscribe(topic2)
+            # Subscrever ao tópico de registro inicial
+            registration_topic = f"{self.initial_topic_prefix}/registration"
+            self.client.subscribe(registration_topic)
+            print(f"Subscrito em: {registration_topic}")
             
             self.connected = True
             self.last_ping = utime.ticks_ms()
@@ -314,33 +332,102 @@ class MQTTHandler:
         try:
             topic_str = topic.decode()
             msg_str = msg.decode()
+            
+            print(f"=== MQTT RECEBIDO ===")
+            print(f"Topic: {topic_str}")
+            print(f"Tamanho mensagem: {len(msg_str)} bytes")
+            
             data = json.loads(msg_str)
             
-            print(f"MQTT recebido: {topic_str}")
+            # Processar resposta de registro
+            if "/registration" in topic_str:
+                self.handle_registration_response(data)
             
-            if f"/devices/{self.device_id}/events" in topic_str:
+            # Processar eventos
+            elif "/events" in topic_str:
+                print("Processando eventos...")
                 self.events = data.get('events', [])
                 self.events.sort(key=lambda x: x.get('time', '23:59'))
-                print(f"Eventos recebidos: {len(self.events)}")
+                print(f"✅ {len(self.events)} eventos recebidos e ordenados")
+                
+                # Debug dos eventos recebidos
+                for i, event in enumerate(self.events[:3]):
+                    time_str = event.get('time', 'Todo dia')
+                    title = event.get('title', 'Sem título')
+                    print(f"  {i+1}. {time_str} - {title}")
+                    
+            print("==================")
                     
         except Exception as e:
             print(f"Erro processando MQTT: {e}")
     
+    def handle_registration_response(self, data):
+        """Processar resposta do servidor para registro"""
+        status = data.get('status', '')
+        reg_id = data.get('registration_id', '')
+        
+        # Verificar se a resposta é para este dispositivo
+        if reg_id != self.registration_id:
+            return
+        
+        print(f"Status de registro: {status}")
+        
+        if status == 'approved':
+            # Dispositivo aprovado!
+            self.approved = True
+            self.assigned_device_id = data.get('device_id')
+            new_topic_prefix = data.get('topic_prefix')
+            
+            if new_topic_prefix and self.assigned_device_id:
+                print(f"✅ APROVADO!")
+                print(f"Novo device ID: {self.assigned_device_id}")
+                print(f"Topic prefix: {new_topic_prefix}")
+                
+                # Atualizar configurações
+                self.current_topic_prefix = new_topic_prefix
+                
+                # Subscrever ao tópico de eventos específico
+                events_topic = f"{new_topic_prefix}/devices/{self.assigned_device_id}/events"
+                self.client.subscribe(events_topic)
+                print(f"Subscrito em eventos: {events_topic}")
+                
+                # Se houver tópico de eventos na resposta, subscrever também
+                events_topic_from_response = data.get('events_topic')
+                if events_topic_from_response and events_topic_from_response != events_topic:
+                    self.client.subscribe(events_topic_from_response)
+                    print(f"Subscrito adicional: {events_topic_from_response}")
+        
+        elif status == 'pending':
+            print("⏳ Dispositivo em aprovação pendente")
+        
+        else:
+            print(f"❌ Status desconhecido: {status}")
+    
     def send_registration(self):
+        """Enviar pedido de registro"""
         if not self.connected:
             return
             
+        # Evitar spam de registros
+        now = utime.ticks_ms()
+        if utime.ticks_diff(now, self.last_registration_attempt) < 5000:  # 5 segundos
+            return
+        
         try:
             registration_data = {
-                'registration_id': self.device_id,
+                'registration_id': self.registration_id,
+                'device_info': f'Pico 2W Magic Mirror',
                 'timestamp': utime.time(),
-                'type': 'pico_2w'
+                'type': 'pico_2w',
+                'mac_address': ubinascii.hexlify(network.WLAN().config('mac')).decode()
             }
             
-            topic = f"{self.topic_prefix}/registration"
+            topic = f"{self.current_topic_prefix}/registration"
             message = json.dumps(registration_data)
             self.client.publish(topic, message)
-            print("Registro enviado")
+            
+            self.last_registration_attempt = now
+            print(f"Registro enviado para: {topic}")
             
         except Exception as e:
             print(f"Erro enviando registro: {e}")
@@ -350,25 +437,39 @@ class MQTTHandler:
             return
             
         try:
+            # Verificar mensagens
             self.client.check_msg()
             
+            # Ping periódico
             now = utime.ticks_ms()
-            if utime.ticks_diff(now, self.last_ping) > 30000:
+            if utime.ticks_diff(now, self.last_ping) > 30000:  # 30 segundos
                 self.client.ping()
                 self.last_ping = now
+            
+            # Re-enviar registro se ainda não aprovado
+            if not self.approved and utime.ticks_diff(now, self.last_registration_attempt) > 30000:  # 30 segundos
+                print("Re-enviando registro (ainda não aprovado)")
+                self.send_registration()
                 
         except Exception as e:
-            print(f"Erro MQTT: {e}")
+            print(f"Erro MQTT check: {e}")
             self.connected = False
     
     def get_events(self):
         return self.events
+    
+    def is_approved(self):
+        return self.approved
 
 # ==================== CLASSE PRINCIPAL ====================
 class MagicMirror:
     def __init__(self):
         self.network_manager = NetworkManager()
         self.mqtt_handler = None
+        
+        # Gerar device ID único
+        self.unique_device_id = get_unique_device_id()
+        print(f"🆔 Device ID único: {self.unique_device_id}")
         
         # Estado anterior para otimização
         self.last_display = {
@@ -390,8 +491,7 @@ class MagicMirror:
         
         # Display
         init_display()
-        draw_centered(100, "MAGIC MIRROR", WHITE, 3)
-        draw_centered(140, "INICIALIZANDO...", CYAN, 2)
+        self.show_splash_screen()
         
         # WiFi
         wifi_success = self.network_manager.connect_wifi(WIFI_SSID, WIFI_PASSWORD)
@@ -403,19 +503,39 @@ class MagicMirror:
                 rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))
             
             # MQTT
-            self.mqtt_handler = MQTTHandler(DEVICE_ID, TOPIC_PREFIX)
-            self.mqtt_handler.connect(self.network_manager)
+            self.mqtt_handler = MQTTHandler(self.unique_device_id, TOPIC_PREFIX)
+            mqtt_success = self.mqtt_handler.connect(self.network_manager)
+            
+            if mqtt_success:
+                self.show_connection_status("CONECTADO - AGUARDANDO APROVACAO", YELLOW)
+            else:
+                self.show_connection_status("MQTT FALHOU", RED)
         else:
             rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))
+            self.show_connection_status("WIFI FALHOU", RED)
         
-        utime.sleep(2)
+        utime.sleep(3)
         self.setup_main_screen()
+    
+    def show_splash_screen(self):
+        clear_screen(BLACK)
+        draw_centered(80, "MAGIC MIRROR", WHITE, 3)
+        draw_centered(120, "PICO 2W v2.0", CYAN, 2)
+        draw_centered(150, f"ID: {self.unique_device_id}", YELLOW, 1)
+        draw_centered(180, "INICIALIZANDO...", WHITE, 1)
+    
+    def show_connection_status(self, message, color):
+        fill_rect(0, 200, DISPLAY_WIDTH, 30, BLACK)
+        draw_centered(210, message, color, 1)
     
     def setup_main_screen(self):
         clear_screen(BLACK)
+        
+        # Desenhar separadores do relógio
         draw_text(180, 60, ":", WHITE, 4)
         draw_text(280, 60, ":", WHITE, 4)
         
+        # Limpar cache de display
         for key in self.last_display:
             self.last_display[key] = None
     
@@ -433,37 +553,52 @@ class MagicMirror:
         events = self.mqtt_handler.get_events()
         events_start_y = 170
         events_area_height = 120
-        line_height = 20
-        max_events = events_area_height // line_height
+        line_height = 18
+        max_events = min(6, events_area_height // line_height)  # Máximo 6 eventos
         
+        # Preparar lista de eventos para exibição
         events_display = []
         for i, event in enumerate(events[:max_events]):
-            time_str = event.get('time', '')
-            title = event.get('title', 'Evento')
+            time_str = event.get('time', '').strip()
+            title = event.get('title', 'Evento sem título').strip()
             
-            if len(title) > 25:
-                title = title[:22] + "..."
+            # Limitar tamanho do título
+            if len(title) > 35:
+                title = title[:32] + "..."
             
             if time_str:
                 display_text = f"{time_str} {title}"
             else:
-                display_text = f"Todo dia {title}"
+                display_text = f"Dia todo: {title}"
                 
             events_display.append(display_text)
         
+        # Comparar com exibição anterior
         current_events_text = "\n".join(events_display)
         if self.last_display['events'] != current_events_text:
+            print(f"🔄 Atualizando display de eventos ({len(events_display)} eventos)")
+            
+            # Limpar área de eventos
             fill_rect(0, events_start_y, DISPLAY_WIDTH, events_area_height, BLACK)
             
             if events_display:
-                draw_text(10, events_start_y, "EVENTOS HOJE:", YELLOW, 1)
+                # Cabeçalho
+                draw_text(10, events_start_y, "EVENTOS DE HOJE:", YELLOW, 1)
                 
+                # Listar eventos
                 for i, event_text in enumerate(events_display):
                     y_pos = events_start_y + 15 + (i * line_height)
                     color = WHITE if i % 2 == 0 else CYAN
-                    draw_text(10, y_pos, event_text, color, 1)
+                    
+                    # Garantir que não ultrapasse a tela
+                    if y_pos + 8 < events_start_y + events_area_height:
+                        draw_text(10, y_pos, event_text, color, 1)
+            else:
+                # Nenhum evento
+                draw_text(10, events_start_y, "NENHUM EVENTO HOJE", ORANGE, 1)
             
             self.last_display['events'] = current_events_text
+            print("✅ Display de eventos atualizado")
     
     def update_clock(self):
         current = rtc.datetime()
@@ -489,18 +624,25 @@ class MagicMirror:
             draw_centered(125, date_str, CYAN, 2)
             self.last_display['date'] = date_str
         
-        # Status
-        network_status = self.network_manager
+        # Status de conexão
+        self.update_connection_status()
+    
+    def update_connection_status(self):
+        network_connected = self.network_manager.connected
         mqtt_connected = self.mqtt_handler and self.mqtt_handler.connected
+        mqtt_approved = self.mqtt_handler and self.mqtt_handler.is_approved()
         
-        if network_status.connected and mqtt_connected:
-            status_text = "LOCAL"
+        if network_connected and mqtt_connected and mqtt_approved:
+            status_text = "SINCRONIZADO"
             status_color = GREEN
-        elif network_status.connected:
-            status_text = "WIFI"
+        elif network_connected and mqtt_connected:
+            status_text = "AGUARDANDO APROVACAO"
             status_color = YELLOW
+        elif network_connected:
+            status_text = "WIFI - SEM MQTT"
+            status_color = ORANGE
         else:
-            status_text = "LOCAL"
+            status_text = "DESCONECTADO"
             status_color = RED
         
         if self.last_display['status'] != (status_text, status_color):
@@ -510,47 +652,76 @@ class MagicMirror:
     
     def run(self):
         sync_counter = 0
+        event_check_counter = 0
+        
+        print("🚀 Iniciando loop principal...")
         
         while True:
             try:
+                # Verificar mensagens MQTT
                 if self.mqtt_handler:
                     self.mqtt_handler.check_messages()
                 
+                # Atualizar relógio (sempre)
                 self.update_clock()
-                self.update_events()
+                
+                # Atualizar eventos (menos frequente para economizar recursos)
+                event_check_counter += 1
+                if event_check_counter >= 10:  # A cada 5 segundos (10 * 500ms)
+                    self.update_events()
+                    event_check_counter = 0
                 
                 # Re-sincronizar NTP a cada hora
                 sync_counter += 1
-                if sync_counter >= 7200:
+                if sync_counter >= 7200:  # 1 hora em ciclos de 500ms
                     if self.network_manager.connected:
+                        print("🕐 Re-sincronizando NTP...")
                         self.network_manager.sync_ntp_brasilia()
                     sync_counter = 0
                 
-                if sync_counter % 120 == 0:
+                # Garbage collection periódico
+                if sync_counter % 240 == 0:  # A cada 2 minutos
                     gc.collect()
+                    
+                    # Log de status a cada 2 minutos
+                    if self.mqtt_handler:
+                        events_count = len(self.mqtt_handler.get_events())
+                        approved = self.mqtt_handler.is_approved()
+                        print(f"📊 Status: {events_count} eventos | Aprovado: {approved}")
                 
                 utime.sleep_ms(500)
                 
             except KeyboardInterrupt:
+                print("🛑 Interrompido pelo usuário")
                 break
             except Exception as e:
-                print(f"Erro no loop: {e}")
-                utime.sleep(1)
+                print(f"❌ Erro no loop principal: {e}")
+                utime.sleep(2)  # Pausa maior em caso de erro
 
 # ==================== EXECUÇÃO ====================
 def main():
+    print("=" * 50)
+    print("🪐 MAGIC MIRROR - PICO 2W v2.0")
+    print("Sistema corrigido com MQTT dinâmico")
+    print("=" * 50)
+    
     try:
         mirror = MagicMirror()
         mirror.run()
     except Exception as e:
+        print(f"❌ Erro fatal: {e}")
         try:
+            # Tentar mostrar erro no display
             clear_screen(BLACK)
-            draw_centered(150, "ERRO DISPLAY", RED, 3)
-            print(f"Erro fatal: {e}")
+            draw_centered(100, "ERRO FATAL", RED, 3)
+            draw_centered(140, "VERIFIQUE CONSOLE", WHITE, 1)
+            draw_centered(160, str(e)[:30], YELLOW, 1)
+            
             while True:
                 utime.sleep(10)
         except:
-            print(f"Erro crítico: {e}")
+            # Se nem o display funcionar
+            print("💀 Erro crítico - sistema parado")
             while True:
                 utime.sleep(10)
 
