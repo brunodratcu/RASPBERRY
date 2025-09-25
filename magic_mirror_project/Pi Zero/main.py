@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Magic Mirror - Versão Simplificada com MQTT
-Apenas relógio e status de conexão MQTT
+Magic Mirror - Raspberry Pico 2W
+Sistema de relógio com sincronização MQTT e eventos do Outlook
 """
 
 import machine
@@ -15,15 +15,26 @@ from machine import Pin, RTC
 try:
     from config import *
 except ImportError:
+    pass
+
+# Definir todas as variáveis obrigatórias
+if 'WIFI_SSID' not in globals():
     WIFI_SSID = "SuaRedeWiFi"
+if 'WIFI_PASSWORD' not in globals():
     WIFI_PASSWORD = "SuaSenha"
+if 'TIMEZONE_OFFSET' not in globals():
     TIMEZONE_OFFSET = -3
+if 'DISPLAY_WIDTH' not in globals():
     DISPLAY_WIDTH = 480
+if 'DISPLAY_HEIGHT' not in globals():
     DISPLAY_HEIGHT = 320
-    # MQTT Config
+if 'MQTT_BROKER' not in globals():
     MQTT_BROKER = "test.mosquitto.org"
+if 'MQTT_PORT' not in globals():
     MQTT_PORT = 1883
+if 'TOPIC_PREFIX' not in globals():
     TOPIC_PREFIX = "magic_mirror_default"
+if 'DEVICE_ID' not in globals():
     DEVICE_ID = "mirror_001"
 
 # Importar MQTT
@@ -32,12 +43,19 @@ try:
     MQTT_AVAILABLE = True
 except ImportError:
     MQTT_AVAILABLE = False
+    print("AVISO: umqtt.simple não encontrado")
+
+# Importar NTP
+try:
+    import ntptime
+    NTP_AVAILABLE = True
+except ImportError:
+    NTP_AVAILABLE = False
 
 # Importar fontes
 try:
-    from font import FONT_8X8
+    from font import FONT_8X8, get_char_bitmap
 except ImportError:
-    # Fonte mínima se não conseguir importar
     FONT_8X8 = {
         '0': [0x3C, 0x66, 0x6E, 0x7E, 0x76, 0x66, 0x3C, 0x00],
         '1': [0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00],
@@ -68,15 +86,11 @@ except ImportError:
         'L': [0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00],
         'Z': [0x7E, 0x0E, 0x1C, 0x38, 0x70, 0x60, 0x7E, 0x00],
     }
+    
+    def get_char_bitmap(char):
+        return FONT_8X8.get(char, FONT_8X8[' '])
 
-try:
-    import ntptime
-    NTP_AVAILABLE = True
-except ImportError:
-    NTP_AVAILABLE = False
-
-# ==================== HARDWARE SETUP ====================
-# Pinos do display
+# Hardware - Pinos do display
 rst = Pin(16, Pin.OUT, value=1)
 cs = Pin(17, Pin.OUT, value=1) 
 rs = Pin(15, Pin.OUT, value=0)
@@ -95,9 +109,8 @@ GREEN = 0x07E0
 BLUE = 0x001F
 CYAN = 0x07FF
 YELLOW = 0xFFE0
-ORANGE = 0xFD20
 
-# ==================== FUNÇÕES DO DISPLAY ====================
+# ==================== DISPLAY ====================
 def write_byte(data):
     for i in range(8):
         data_pins[i].value((data >> i) & 1)
@@ -124,11 +137,11 @@ def init_display():
     rst.value(1)
     utime.sleep_ms(50)
     
-    cmd(0x01); utime.sleep_ms(100)  # Reset
-    cmd(0x11); utime.sleep_ms(100)  # Sleep out
-    cmd(0x3A); dat(0x55)            # 16-bit
-    cmd(0x36); dat(0xE8)            # Orientation  
-    cmd(0x29); utime.sleep_ms(50)   # Display on
+    cmd(0x01); utime.sleep_ms(100)
+    cmd(0x11); utime.sleep_ms(100)
+    cmd(0x3A); dat(0x55)
+    cmd(0x36); dat(0xE8)
+    cmd(0x29); utime.sleep_ms(50)
     return True
 
 def set_area(x0, y0, x1, y1):
@@ -152,19 +165,19 @@ def clear_screen(color=BLACK):
     fill_rect(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, color)
 
 def draw_char(x, y, char, color, size=1):
-    if char not in FONT_8X8: char = ' '
-    bitmap = FONT_8X8[char]
+    try:
+        bitmap = get_char_bitmap(char)
+    except:
+        if char not in FONT_8X8: 
+            char = ' '
+        bitmap = FONT_8X8[char]
     
-    # Desenhar caractere pixel por pixel
     for row in range(8):
         byte = bitmap[row]
         for col in range(8):
             px = x + col * size
             py = y + row * size
-            
-            # Sempre desenhar - pixel aceso ou apagado
             pixel_color = color if (byte & (0x80 >> col)) else BLACK
-            
             if px < DISPLAY_WIDTH and py < DISPLAY_HEIGHT:
                 fill_rect(px, py, size, size, pixel_color)
 
@@ -181,11 +194,80 @@ def draw_centered(y, text, color, size=1):
     char_width = 8 * size
     char_spacing = 2 * size
     text_width = len(str(text)) * char_width + (len(str(text)) - 1) * char_spacing
-    
     x = max(0, (DISPLAY_WIDTH - text_width) // 2)
     draw_text(x, y, text, color, size)
 
-# ==================== CLASSE MQTT ====================
+# ==================== REDE ====================
+class NetworkManager:
+    def __init__(self):
+        self.wlan = network.WLAN(network.STA_IF)
+        self.connected = False
+        self.ip_address = None
+        self.ntp_synced = False
+        
+    def connect_wifi(self, ssid, password, timeout=20):
+        print(f"Conectando WiFi: {ssid}")
+        self.wlan.active(True)
+        
+        if self.wlan.isconnected():
+            self.connected = True
+            self.ip_address = self.wlan.ifconfig()[0]
+            print(f"WiFi já conectado: {self.ip_address}")
+            return True
+        
+        try:
+            self.wlan.connect(ssid, password)
+            
+            for i in range(timeout):
+                if self.wlan.isconnected():
+                    self.connected = True
+                    self.ip_address = self.wlan.ifconfig()[0]
+                    print(f"WiFi conectado: {self.ip_address}")
+                    return True
+                utime.sleep(1)
+            
+            print("Timeout WiFi")
+            return False
+            
+        except Exception as e:
+            print(f"Erro WiFi: {e}")
+            return False
+    
+    def sync_ntp_brasilia(self):
+        if not self.connected or not NTP_AVAILABLE:
+            return False
+        
+        ntp_servers = ["a.ntp.br", "pool.ntp.br", "time.cloudflare.com"]
+        
+        for server in ntp_servers:
+            try:
+                print(f"Sincronizando NTP: {server}")
+                ntptime.host = server
+                ntptime.settime()
+                
+                utc_timestamp = utime.time()
+                brasilia_timestamp = utc_timestamp + (TIMEZONE_OFFSET * 3600)
+                brasilia_time = utime.localtime(brasilia_timestamp)
+                
+                rtc.datetime((
+                    brasilia_time[0], brasilia_time[1], brasilia_time[2], 
+                    brasilia_time[6], brasilia_time[3], brasilia_time[4], 
+                    brasilia_time[5], 0
+                ))
+                
+                self.ntp_synced = True
+                current = rtc.datetime()
+                print(f"Horário sincronizado: {current[2]:02d}/{current[1]:02d}/{current[0]} {current[4]:02d}:{current[5]:02d}")
+                return True
+                
+            except Exception as e:
+                print(f"Falha NTP {server}: {e}")
+                continue
+        
+        print("Todos servidores NTP falharam")
+        return False
+
+# ==================== MQTT ====================
 class MQTTHandler:
     def __init__(self, device_id, topic_prefix):
         self.device_id = device_id
@@ -195,54 +277,56 @@ class MQTTHandler:
         self.last_ping = 0
         self.events = []
         
-    def connect(self):
-        """Conecta ao broker MQTT"""
-        if not MQTT_AVAILABLE:
+    def connect(self, network_manager):
+        if not MQTT_AVAILABLE or not network_manager.connected:
+            print("MQTT não disponível ou WiFi desconectado")
             return False
             
         try:
+            print(f"Conectando MQTT: {MQTT_BROKER}:{MQTT_PORT}")
+            print(f"Topic Prefix: {self.topic_prefix}")
+            
             client_id = f"{self.device_id}_{utime.ticks_ms()}"
             self.client = MQTTClient(client_id, MQTT_BROKER, port=MQTT_PORT)
-            
-            # Configurar callback de mensagens
             self.client.set_callback(self.on_message)
-            
-            # Conectar
             self.client.connect()
             
-            # Inscrever-se nos tópicos
-            self.client.subscribe(f"{self.topic_prefix}/devices/{self.device_id}/events")
-            self.client.subscribe(f"{self.topic_prefix}/registration")
+            # Inscrever nos tópicos
+            topic1 = f"{self.topic_prefix}/devices/{self.device_id}/events"
+            topic2 = f"{self.topic_prefix}/registration"
+            
+            self.client.subscribe(topic1)
+            self.client.subscribe(topic2)
             
             self.connected = True
             self.last_ping = utime.ticks_ms()
             
-            # Enviar registro
+            print("MQTT conectado - enviando registro")
             self.send_registration()
-            
             return True
             
         except Exception as e:
+            print(f"Erro MQTT: {e}")
             self.connected = False
             return False
     
     def on_message(self, topic, msg):
-        """Callback para mensagens MQTT recebidas"""
         try:
             topic_str = topic.decode()
             msg_str = msg.decode()
             data = json.loads(msg_str)
             
-            # Processar eventos do calendário
+            print(f"MQTT recebido: {topic_str}")
+            
             if f"/devices/{self.device_id}/events" in topic_str:
                 self.events = data.get('events', [])
+                self.events.sort(key=lambda x: x.get('time', '23:59'))
                 print(f"Eventos recebidos: {len(self.events)}")
-                
+                    
         except Exception as e:
-            print(f"Erro processando mensagem MQTT: {e}")
+            print(f"Erro processando MQTT: {e}")
     
     def send_registration(self):
-        """Envia mensagem de registro para o servidor"""
         if not self.connected:
             return
             
@@ -256,21 +340,20 @@ class MQTTHandler:
             topic = f"{self.topic_prefix}/registration"
             message = json.dumps(registration_data)
             self.client.publish(topic, message)
+            print("Registro enviado")
             
         except Exception as e:
             print(f"Erro enviando registro: {e}")
     
     def check_messages(self):
-        """Verifica mensagens MQTT (não bloqueante)"""
         if not self.connected or not self.client:
             return
             
         try:
             self.client.check_msg()
             
-            # Ping periódico para manter conexão
             now = utime.ticks_ms()
-            if utime.ticks_diff(now, self.last_ping) > 30000:  # 30 segundos
+            if utime.ticks_diff(now, self.last_ping) > 30000:
                 self.client.ping()
                 self.last_ping = now
                 
@@ -279,177 +362,119 @@ class MQTTHandler:
             self.connected = False
     
     def get_events(self):
-        """Retorna eventos do calendário"""
         return self.events
 
 # ==================== CLASSE PRINCIPAL ====================
 class MagicMirror:
     def __init__(self):
-        self.wifi_connected = False
-        self.ntp_synced = False
+        self.network_manager = NetworkManager()
         self.mqtt_handler = None
         
-        # Controle de estado anterior para otimização
+        # Estado anterior para otimização
         self.last_display = {
-            'h1': None, 'h2': None,  # Dígitos das horas
-            'm1': None, 'm2': None,  # Dígitos dos minutos  
-            's1': None, 's2': None,  # Dígitos dos segundos
-            'date': None,            # Data completa
-            'status': None,          # Status de conexão
-            'events': None           # Eventos
+            'h1': None, 'h2': None, 'm1': None, 'm2': None, 
+            's1': None, 's2': None, 'date': None, 'status': None, 'events': None
         }
         
-        # Posições fixas dos dígitos no display
+        # Posições dos dígitos
         self.positions = {
-            'h1': (100, 60),  # Primeiro dígito da hora
-            'h2': (140, 60),  # Segundo dígito da hora
-            'm1': (200, 60),  # Primeiro dígito do minuto
-            'm2': (240, 60),  # Segundo dígito do minuto
-            's1': (300, 60),  # Primeiro dígito do segundo
-            's2': (340, 60),  # Segundo dígito do segundo
+            'h1': (100, 60), 'h2': (140, 60),
+            'm1': (200, 60), 'm2': (240, 60),
+            's1': (300, 60), 's2': (340, 60),
         }
         
-        # Inicializar display
+        self.init_system()
+    
+    def init_system(self):
+        print("Inicializando Magic Mirror...")
+        
+        # Display
         init_display()
+        draw_centered(100, "MAGIC MIRROR", WHITE, 3)
+        draw_centered(140, "INICIALIZANDO...", CYAN, 2)
         
-        # Mostrar tela de inicialização
-        clear_screen(BLACK)
-        draw_centered(140, "INICIALIZANDO MQTT", CYAN, 2)
+        # WiFi
+        wifi_success = self.network_manager.connect_wifi(WIFI_SSID, WIFI_PASSWORD)
+        
+        if wifi_success:
+            # NTP
+            ntp_success = self.network_manager.sync_ntp_brasilia()
+            if not ntp_success:
+                rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))
+            
+            # MQTT
+            self.mqtt_handler = MQTTHandler(DEVICE_ID, TOPIC_PREFIX)
+            self.mqtt_handler.connect(self.network_manager)
+        else:
+            rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))
+        
         utime.sleep(2)
-        
-        # Configurar horário manual (simulação)
-        rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))  # 25/12/2024 15:30:00
-        
-        # Configurar tela principal
         self.setup_main_screen()
-        
-        # Tentar WiFi e MQTT em background
-        self.try_wifi_background()
     
     def setup_main_screen(self):
         clear_screen(BLACK)
-        # Desenhar separadores fixos do relógio (dois pontos)
         draw_text(180, 60, ":", WHITE, 4)
         draw_text(280, 60, ":", WHITE, 4)
         
-        # Forçar redesenho completo na próxima atualização
-        self.last_display = {
-            'h1': None, 'h2': None, 'm1': None, 'm2': None, 
-            's1': None, 's2': None, 'date': None, 'status': None,
-            'events': None
-        }
-    
-    def try_wifi_background(self):
-        """Tenta WiFi e MQTT sem bloquear interface"""
-        try:
-            wlan = network.WLAN(network.STA_IF)
-            wlan.active(True)
-            
-            if not wlan.isconnected():
-                wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-                
-                # Aguardar conexão (máximo 15 segundos)
-                for _ in range(15):
-                    if wlan.isconnected():
-                        break
-                    utime.sleep(1)
-                
-                if wlan.isconnected():
-                    self.wifi_connected = True
-                    self.sync_ntp()
-                    self.setup_mqtt()
-                    # Redesenhar tela após conexão
-                    self.setup_main_screen()
-        except:
-            pass
-    
-    def setup_mqtt(self):
-        """Configura conexão MQTT"""
-        if not self.wifi_connected:
-            return
-            
-        try:
-            self.mqtt_handler = MQTTHandler(DEVICE_ID, TOPIC_PREFIX)
-            mqtt_connected = self.mqtt_handler.connect()
-            
-            if mqtt_connected:
-                print("MQTT conectado com sucesso")
-            else:
-                print("Falha na conexão MQTT")
-                
-        except Exception as e:
-            print(f"Erro configurando MQTT: {e}")
-    
-    def sync_ntp(self):
-        """Sincroniza horário via NTP"""
-        if not self.wifi_connected or not NTP_AVAILABLE:
-            return
-        
-        try:
-            ntptime.settime()
-            # Ajustar fuso horário
-            timestamp_utc = utime.time()
-            timestamp_local = timestamp_utc + (TIMEZONE_OFFSET * 3600)
-            local_time = utime.localtime(timestamp_local)
-            
-            rtc.datetime((local_time[0], local_time[1], local_time[2], 
-                         local_time[6], local_time[3], local_time[4], 
-                         local_time[5], 0))
-            
-            self.ntp_synced = True
-        except:
-            pass
+        for key in self.last_display:
+            self.last_display[key] = None
     
     def update_single_digit(self, position_key, new_digit):
-        """Atualiza um único dígito se ele mudou"""
         if self.last_display[position_key] != new_digit:
             x, y = self.positions[position_key]
-            
-            # Limpar área do dígito (32x32 pixels para tamanho 4)
             fill_rect(x, y, 32, 32, BLACK)
-            
-            # Desenhar novo dígito
             draw_char(x, y, new_digit, WHITE, 4)
-            
-            # Atualizar estado
             self.last_display[position_key] = new_digit
     
     def update_events(self):
-        """Atualiza eventos do calendário na tela"""
         if not self.mqtt_handler:
             return
             
         events = self.mqtt_handler.get_events()
-        events_text = f"EVENTOS: {len(events)}" if events else "SEM EVENTOS"
+        events_start_y = 170
+        events_area_height = 120
+        line_height = 20
+        max_events = events_area_height // line_height
         
-        if self.last_display['events'] != events_text:
-            # Limpar área dos eventos
-            fill_rect(0, 240, DISPLAY_WIDTH, 25, BLACK)
+        events_display = []
+        for i, event in enumerate(events[:max_events]):
+            time_str = event.get('time', '')
+            title = event.get('title', 'Evento')
             
-            # Mostrar quantidade de eventos
-            draw_centered(245, events_text, YELLOW, 2)
+            if len(title) > 25:
+                title = title[:22] + "..."
             
-            # Mostrar primeiro evento se existir
-            if events:
-                first_event = events[0]
-                event_title = first_event.get('title', 'Sem título')[:20]  # Limitar tamanho
-                fill_rect(0, 265, DISPLAY_WIDTH, 20, BLACK)
-                draw_centered(268, event_title, WHITE, 1)
+            if time_str:
+                display_text = f"{time_str} {title}"
+            else:
+                display_text = f"Todo dia {title}"
+                
+            events_display.append(display_text)
+        
+        current_events_text = "\n".join(events_display)
+        if self.last_display['events'] != current_events_text:
+            fill_rect(0, events_start_y, DISPLAY_WIDTH, events_area_height, BLACK)
             
-            self.last_display['events'] = events_text
+            if events_display:
+                draw_text(10, events_start_y, "EVENTOS HOJE:", YELLOW, 1)
+                
+                for i, event_text in enumerate(events_display):
+                    y_pos = events_start_y + 15 + (i * line_height)
+                    color = WHITE if i % 2 == 0 else CYAN
+                    draw_text(10, y_pos, event_text, color, 1)
+            
+            self.last_display['events'] = current_events_text
     
     def update_clock(self):
-        """Atualiza relógio - VERSÃO OTIMIZADA"""
         current = rtc.datetime()
         h, m, s = current[4], current[5], current[6]
         d, month, y = current[2], current[1], current[0]
         
-        # Separar dígitos individuais
+        # Dígitos do relógio
         h1, h2 = f"{h:02d}"[0], f"{h:02d}"[1]
         m1, m2 = f"{m:02d}"[0], f"{m:02d}"[1]  
         s1, s2 = f"{s:02d}"[0], f"{s:02d}"[1]
         
-        # Atualizar apenas dígitos que mudaram
         self.update_single_digit('h1', h1)
         self.update_single_digit('h2', h2)
         self.update_single_digit('m1', m1)
@@ -457,48 +482,59 @@ class MagicMirror:
         self.update_single_digit('s1', s1)
         self.update_single_digit('s2', s2)
         
-        # Data - atualizar apenas se mudou
+        # Data
         date_str = f"{d:02d}/{month:02d}/{y}"
         if self.last_display['date'] != date_str:
-            fill_rect(0, 130, DISPLAY_WIDTH, 30, BLACK)  # Limpar área da data
-            draw_centered(130, date_str, CYAN, 3)
+            fill_rect(0, 120, DISPLAY_WIDTH, 30, BLACK)
+            draw_centered(125, date_str, CYAN, 2)
             self.last_display['date'] = date_str
         
-        # Status - mostrar apenas "LOCAL" em amarelo ou verde quando MQTT conectado
-        if self.mqtt_handler and self.mqtt_handler.connected:
+        # Status
+        network_status = self.network_manager
+        mqtt_connected = self.mqtt_handler and self.mqtt_handler.connected
+        
+        if network_status.connected and mqtt_connected:
             status_text = "LOCAL"
             status_color = GREEN
+        elif network_status.connected:
+            status_text = "WIFI"
+            status_color = YELLOW
         else:
             status_text = "LOCAL"
-            status_color = YELLOW
+            status_color = RED
         
         if self.last_display['status'] != (status_text, status_color):
-            fill_rect(0, 290, DISPLAY_WIDTH, 20, BLACK)  # Limpar área do status
-            draw_centered(295, status_text, status_color, 1)
+            fill_rect(0, 295, DISPLAY_WIDTH, 20, BLACK)
+            draw_centered(300, status_text, status_color, 1)
             self.last_display['status'] = (status_text, status_color)
     
     def run(self):
-        """Loop principal"""
+        sync_counter = 0
+        
         while True:
             try:
-                # Verificar mensagens MQTT
                 if self.mqtt_handler:
                     self.mqtt_handler.check_messages()
                 
-                # Atualizar display
                 self.update_clock()
                 self.update_events()
                 
-                # Coleta de lixo ocasional
-                if utime.ticks_ms() % 60000 < 100:  # ~1 minuto
+                # Re-sincronizar NTP a cada hora
+                sync_counter += 1
+                if sync_counter >= 7200:
+                    if self.network_manager.connected:
+                        self.network_manager.sync_ntp_brasilia()
+                    sync_counter = 0
+                
+                if sync_counter % 120 == 0:
                     gc.collect()
                 
-                utime.sleep_ms(500)  # Loop mais lento sem blink
+                utime.sleep_ms(500)
                 
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"Erro no loop principal: {e}")
+                print(f"Erro no loop: {e}")
                 utime.sleep(1)
 
 # ==================== EXECUÇÃO ====================
@@ -507,14 +543,16 @@ def main():
         mirror = MagicMirror()
         mirror.run()
     except Exception as e:
-        # Mostrar erro e reiniciar
         try:
             clear_screen(BLACK)
             draw_centered(150, "ERRO DISPLAY", RED, 3)
-            utime.sleep(3)
+            print(f"Erro fatal: {e}")
+            while True:
+                utime.sleep(10)
         except:
-            pass
-        machine.reset()
+            print(f"Erro crítico: {e}")
+            while True:
+                utime.sleep(10)
 
 if __name__ == "__main__":
     main()
