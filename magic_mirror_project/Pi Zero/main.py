@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Magic Mirror - Raspberry Pico 2W - VERSÃO CORRIGIDA
+Magic Mirror - Raspberry Pico 2W - CORRIGIDO
 Sistema de relógio com sincronização MQTT e eventos do Outlook
-Correções: Topic prefix dinâmico e sincronização adequada
+CORREÇÃO: Topic único e recebimento garantido de aprovações
 """
 
 import machine
@@ -13,13 +13,21 @@ import json
 import ubinascii
 from machine import Pin, RTC
 
-# Importar configurações
+# Importar módulos
 try:
     from config import *
 except ImportError:
-    pass
+    print("Config nao encontrado")
 
-# Definir todas as variáveis obrigatórias
+try:
+    from font import get_char_bitmap
+    FONT_AVAILABLE = True
+    print("Font module OK")
+except ImportError:
+    FONT_AVAILABLE = False
+    print("Font module nao encontrado - usando fonte basica")
+
+# Configurações padrão
 if 'WIFI_SSID' not in globals():
     WIFI_SSID = "SuaRedeWiFi"
 if 'WIFI_PASSWORD' not in globals():
@@ -35,15 +43,24 @@ if 'MQTT_BROKER' not in globals():
 if 'MQTT_PORT' not in globals():
     MQTT_PORT = 1883
 if 'TOPIC_PREFIX' not in globals():
-    TOPIC_PREFIX = "magic_mirror_default"
+    TOPIC_PREFIX = "magic_mirror_stable"
 
 # Importar MQTT
 try:
     from umqtt.simple import MQTTClient
     MQTT_AVAILABLE = True
+    print("✅ umqtt.simple disponível")
 except ImportError:
     MQTT_AVAILABLE = False
-    print("AVISO: umqtt.simple não encontrado")
+    print("❌ umqtt.simple não encontrado!")
+    class MQTTClient:
+        def __init__(self, *args, **kwargs): pass
+        def connect(self): raise Exception("MQTT não disponível")
+        def disconnect(self): pass
+        def publish(self, topic, msg): pass
+        def subscribe(self, topic): pass
+        def check_msg(self): pass
+        def set_callback(self, callback): pass
 
 # Importar NTP
 try:
@@ -51,58 +68,59 @@ try:
     NTP_AVAILABLE = True
 except ImportError:
     NTP_AVAILABLE = False
+    print("⚠️  ntptime não disponível")
 
-# Importar fontes (mesmo código anterior)
-try:
-    from font import FONT_8X8, get_char_bitmap
-except ImportError:
-    FONT_8X8 = {
-        '0': [0x3C, 0x66, 0x6E, 0x7E, 0x76, 0x66, 0x3C, 0x00],
-        '1': [0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00],
-        '2': [0x3C, 0x66, 0x06, 0x1C, 0x30, 0x60, 0x7E, 0x00],
-        '3': [0x3C, 0x66, 0x06, 0x1C, 0x06, 0x66, 0x3C, 0x00],
-        '4': [0x0E, 0x1E, 0x36, 0x66, 0x7F, 0x06, 0x06, 0x00],
-        '5': [0x7E, 0x60, 0x7C, 0x06, 0x06, 0x66, 0x3C, 0x00],
-        '6': [0x1C, 0x30, 0x60, 0x7C, 0x66, 0x66, 0x3C, 0x00],
-        '7': [0x7E, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00],
-        '8': [0x3C, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x3C, 0x00],
-        '9': [0x3C, 0x66, 0x66, 0x3E, 0x06, 0x0C, 0x38, 0x00],
-        ':': [0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00],
-        '/': [0x00, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x00, 0x00],
-        ' ': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-        'M': [0x63, 0x77, 0x7F, 0x6B, 0x63, 0x63, 0x63, 0x00],
-        'A': [0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00],
-        'G': [0x3C, 0x66, 0x60, 0x6E, 0x66, 0x66, 0x3C, 0x00],
-        'I': [0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00],
-        'C': [0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00],
-        'R': [0x7C, 0x66, 0x66, 0x7C, 0x78, 0x6C, 0x66, 0x00],
-        'O': [0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00],
-        'H': [0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00],
-        'S': [0x3E, 0x60, 0x60, 0x3E, 0x06, 0x06, 0x7C, 0x00],
-        'T': [0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00],
-        'E': [0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x7E, 0x00],
-        'N': [0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00],
-        'D': [0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x00],
-        'L': [0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00],
-        'Z': [0x7E, 0x0E, 0x1C, 0x38, 0x70, 0x60, 0x7E, 0x00],
-        '-': [0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00],
-    }
-    
-    def get_char_bitmap(char):
-        return FONT_8X8.get(char, FONT_8X8[' '])
+# Font 8x8 (simplificada - apenas dígitos e símbolos essenciais)
+FONT_8X8 = {
+    '0': [0x3C, 0x66, 0x6E, 0x7E, 0x76, 0x66, 0x3C, 0x00],
+    '1': [0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00],
+    '2': [0x3C, 0x66, 0x06, 0x1C, 0x30, 0x60, 0x7E, 0x00],
+    '3': [0x3C, 0x66, 0x06, 0x1C, 0x06, 0x66, 0x3C, 0x00],
+    '4': [0x0E, 0x1E, 0x36, 0x66, 0x7F, 0x06, 0x06, 0x00],
+    '5': [0x7E, 0x60, 0x7C, 0x06, 0x06, 0x66, 0x3C, 0x00],
+    '6': [0x1C, 0x30, 0x60, 0x7C, 0x66, 0x66, 0x3C, 0x00],
+    '7': [0x7E, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00],
+    '8': [0x3C, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x3C, 0x00],
+    '9': [0x3C, 0x66, 0x66, 0x3E, 0x06, 0x0C, 0x38, 0x00],
+    ':': [0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00],
+    '/': [0x00, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x00, 0x00],
+    ' ': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    '-': [0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00],
+}
+
+# Adicionar letras básicas para mensagens
+for char, pattern in [
+    ('A', [0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00]),
+    ('D', [0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x00]),
+    ('E', [0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x7E, 0x00]),
+    ('G', [0x3C, 0x66, 0x60, 0x6E, 0x66, 0x66, 0x3C, 0x00]),
+    ('I', [0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00]),
+    ('L', [0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00]),
+    ('N', [0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00]),
+    ('O', [0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00]),
+    ('P', [0x7C, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x00]),
+    ('R', [0x7C, 0x66, 0x66, 0x7C, 0x78, 0x6C, 0x66, 0x00]),
+    ('S', [0x3E, 0x60, 0x60, 0x3E, 0x06, 0x06, 0x7C, 0x00]),
+    ('T', [0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00]),
+    ('U', [0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00]),
+    ('V', [0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00]),
+]:
+    FONT_8X8[char] = pattern
+
+def get_char_bitmap(char):
+    return FONT_8X8.get(char.upper(), FONT_8X8[' '])
 
 # Hardware - Pinos do display
 rst = Pin(16, Pin.OUT, value=1)
-cs = Pin(17, Pin.OUT, value=1) 
+cs = Pin(17, Pin.OUT, value=1)
 rs = Pin(15, Pin.OUT, value=0)
 wr = Pin(19, Pin.OUT, value=1)
 rd = Pin(18, Pin.OUT, value=1)
 data_pins = [Pin(i, Pin.OUT) for i in range(8)]
 
-# RTC
 rtc = RTC()
 
-# Cores
+# Cores RGB565
 BLACK = 0x0000
 WHITE = 0xFFFF
 RED = 0xF800
@@ -112,19 +130,7 @@ CYAN = 0x07FF
 YELLOW = 0xFFE0
 ORANGE = 0xFD20
 
-# ==================== UTILITÁRIOS ====================
-def get_unique_device_id():
-    """Gerar ID único baseado na MAC address"""
-    try:
-        wlan = network.WLAN(network.STA_IF)
-        wlan.active(True)
-        mac = wlan.config('mac')
-        mac_str = ubinascii.hexlify(mac).decode()[-6:]
-        return f"PICO_{mac_str.upper()}"
-    except:
-        return f"PICO_{utime.ticks_ms() % 100000}"
-
-# ==================== DISPLAY (mesmo código anterior) ====================
+# ==================== DISPLAY ====================
 def write_byte(data):
     for i in range(8):
         data_pins[i].value((data >> i) & 1)
@@ -146,6 +152,7 @@ def dat(d):
     cs.value(1)
 
 def init_display():
+    print("Inicializando display...")
     rst.value(0)
     utime.sleep_ms(50)
     rst.value(1)
@@ -156,53 +163,53 @@ def init_display():
     cmd(0x3A); dat(0x55)
     cmd(0x36); dat(0xE8)
     cmd(0x29); utime.sleep_ms(50)
+    
+    print("Display OK")
     return True
 
 def set_area(x0, y0, x1, y1):
     cmd(0x2A)
     dat(x0>>8); dat(x0&0xFF); dat(x1>>8); dat(x1&0xFF)
-    cmd(0x2B) 
+    cmd(0x2B)
     dat(y0>>8); dat(y0&0xFF); dat(y1>>8); dat(y1&0xFF)
     cmd(0x2C)
 
 def fill_rect(x, y, w, h, color):
-    if w <= 0 or h <= 0: return
+    if w <= 0 or h <= 0:
+        return
+    
     set_area(x, y, x+w-1, y+h-1)
     ch, cl = color >> 8, color & 0xFF
-    cs.value(0); rs.value(1)
+    cs.value(0)
+    rs.value(1)
+    
     for _ in range(w*h):
         write_byte(ch); wr.value(0); wr.value(1)
         write_byte(cl); wr.value(0); wr.value(1)
+    
     cs.value(1)
 
 def clear_screen(color=BLACK):
     fill_rect(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, color)
 
 def draw_char(x, y, char, color, size=1):
-    try:
-        bitmap = get_char_bitmap(char)
-    except:
-        if char not in FONT_8X8: 
-            char = ' '
-        bitmap = FONT_8X8[char]
-    
+    bitmap = get_char_bitmap(char)
     for row in range(8):
         byte = bitmap[row]
         for col in range(8):
-            px = x + col * size
-            py = y + row * size
-            pixel_color = color if (byte & (0x80 >> col)) else BLACK
-            if px < DISPLAY_WIDTH and py < DISPLAY_HEIGHT:
-                fill_rect(px, py, size, size, pixel_color)
+            if byte & (0x80 >> col):
+                px = x + col * size
+                py = y + row * size
+                if px < DISPLAY_WIDTH and py < DISPLAY_HEIGHT:
+                    fill_rect(px, py, size, size, color)
 
 def draw_text(x, y, text, color, size=1):
     char_width = 8 * size
     char_spacing = 2 * size
-    
     for i, char in enumerate(str(text)):
         char_x = x + i * (char_width + char_spacing)
         if char_x < DISPLAY_WIDTH - char_width:
-            draw_char(char_x, y, char.upper(), color, size)
+            draw_char(char_x, y, char, color, size)
 
 def draw_centered(y, text, color, size=1):
     char_width = 8 * size
@@ -212,13 +219,23 @@ def draw_centered(y, text, color, size=1):
     draw_text(x, y, text, color, size)
 
 # ==================== REDE ====================
+def get_unique_device_id():
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        mac = wlan.config('mac')
+        mac_str = ubinascii.hexlify(mac).decode()[-6:]
+        return f"PICO_{mac_str.upper()}"
+    except:
+        return f"PICO_{utime.ticks_ms() % 100000}"
+
 class NetworkManager:
     def __init__(self):
         self.wlan = network.WLAN(network.STA_IF)
         self.connected = False
         self.ip_address = None
         self.ntp_synced = False
-        
+    
     def connect_wifi(self, ssid, password, timeout=20):
         print(f"Conectando WiFi: {ssid}")
         self.wlan.active(True)
@@ -226,7 +243,7 @@ class NetworkManager:
         if self.wlan.isconnected():
             self.connected = True
             self.ip_address = self.wlan.ifconfig()[0]
-            print(f"WiFi já conectado: {self.ip_address}")
+            print(f"WiFi conectado: {self.ip_address}")
             return True
         
         try:
@@ -238,14 +255,17 @@ class NetworkManager:
                     self.ip_address = self.wlan.ifconfig()[0]
                     print(f"WiFi conectado: {self.ip_address}")
                     return True
+                print(".", end="")
                 utime.sleep(1)
             
-            print("Timeout WiFi")
+            print(f"\nTimeout WiFi ({timeout}s)")
             return False
-            
         except Exception as e:
             print(f"Erro WiFi: {e}")
             return False
+    
+    def is_connected(self):
+        return self.wlan.isconnected()
     
     def sync_ntp_brasilia(self):
         if not self.connected or not NTP_AVAILABLE:
@@ -260,354 +280,328 @@ class NetworkManager:
                 ntptime.settime()
                 
                 utc_timestamp = utime.time()
-                brasilia_timestamp = utc_timestamp + (TIMEZONE_OFFSET * 3600)
-                brasilia_time = utime.localtime(brasilia_timestamp)
+                local_timestamp = utc_timestamp + (TIMEZONE_OFFSET * 3600)
+                local_time = utime.localtime(local_timestamp)
                 
                 rtc.datetime((
-                    brasilia_time[0], brasilia_time[1], brasilia_time[2], 
-                    brasilia_time[6], brasilia_time[3], brasilia_time[4], 
-                    brasilia_time[5], 0
+                    local_time[0], local_time[1], local_time[2],
+                    local_time[6], local_time[3], local_time[4],
+                    local_time[5], 0
                 ))
                 
                 self.ntp_synced = True
                 current = rtc.datetime()
-                print(f"Horário sincronizado: {current[2]:02d}/{current[1]:02d}/{current[0]} {current[4]:02d}:{current[5]:02d}")
+                print(f"Horario OK: {current[2]:02d}/{current[1]:02d}/{current[0]} {current[4]:02d}:{current[5]:02d}")
                 return True
-                
             except Exception as e:
                 print(f"Falha NTP {server}: {e}")
                 continue
         
-        print("Todos servidores NTP falharam")
         return False
 
-# ==================== MQTT CORRIGIDO ====================
-class MQTTHandler:
-    def __init__(self, device_id, initial_topic_prefix):
+# ==================== MQTT ====================
+class MQTTManager:
+    def __init__(self, device_id, topic_prefix):
         self.device_id = device_id
-        self.registration_id = device_id  # ID usado para registro inicial
-        self.initial_topic_prefix = initial_topic_prefix
-        self.current_topic_prefix = initial_topic_prefix
-        self.assigned_device_id = None  # ID atribuído pelo servidor
+        self.topic_prefix = topic_prefix
         self.client = None
         self.connected = False
         self.approved = False
-        self.last_ping = 0
         self.events = []
-        self.last_registration_attempt = 0
         
-    def connect(self, network_manager):
-        if not MQTT_AVAILABLE or not network_manager.connected:
-            print("MQTT não disponível ou WiFi desconectado")
-            return False
+        self.last_ping = 0
+        self.last_registration = 0
+        self.ping_interval = 30000
+        self.registration_interval = 60000
+        
+        print(f"MQTT configurado:")
+        print(f"  Device ID: {device_id}")
+        print(f"  Topic: {topic_prefix}")
+    
+    def mqtt_callback(self, topic, msg):
+        try:
+            topic_str = topic.decode('utf-8')
+            payload_str = msg.decode('utf-8')
             
+            print(f"\nMensagem MQTT:")
+            print(f"  Topic: {topic_str}")
+            
+            if 'registration' in topic_str:
+                self._handle_registration(payload_str)
+            elif 'events' in topic_str:
+                self._handle_events(payload_str)
+        except Exception as e:
+            print(f"Erro callback: {e}")
+    
+    def _handle_registration(self, payload):
+        try:
+            data = json.loads(payload)
+            reg_id = data.get('registration_id')
+            
+            if reg_id != self.device_id:
+                return
+            
+            status = data.get('status', 'unknown')
+            
+            if status == 'approved':
+                self.approved = True
+                device_id = data.get('device_id', 'default')
+                
+                new_prefix = data.get('topic_prefix')
+                if new_prefix:
+                    self.topic_prefix = new_prefix
+                
+                print(f"\nDISPOSITIVO APROVADO!")
+                print(f"  Device ID: {device_id}")
+                print(f"  Topic: {self.topic_prefix}")
+                
+                # Subscrever aos eventos
+                events_topic = f"{self.topic_prefix}/devices/{device_id}/events"
+                try:
+                    self.client.subscribe(events_topic)
+                    print(f"  Inscrito: {events_topic}")
+                except Exception as e:
+                    print(f"  Erro subscribe: {e}")
+                
+        except Exception as e:
+            print(f"Erro registro: {e}")
+    
+    def _handle_events(self, payload):
+        try:
+            data = json.loads(payload)
+            
+            if isinstance(data, dict) and 'events' in data:
+                self.events = data['events']
+            elif isinstance(data, list):
+                self.events = data
+            else:
+                self.events = [data]
+            
+            print(f"\nEventos recebidos: {len(self.events)}")
+            for i, event in enumerate(self.events[:3]):
+                title = event.get('title', 'Sem titulo')
+                time_str = event.get('time', '')
+                print(f"  {i+1}. {time_str} {title}")
+        except Exception as e:
+            print(f"Erro eventos: {e}")
+    
+    def connect(self, network_manager):
+        if not MQTT_AVAILABLE:
+            print("MQTT nao disponivel")
+            return False
+        
+        if not network_manager.is_connected():
+            print("WiFi nao conectado")
+            return False
+        
         try:
             print(f"Conectando MQTT: {MQTT_BROKER}:{MQTT_PORT}")
-            print(f"Device ID inicial: {self.device_id}")
-            print(f"Topic Prefix inicial: {self.initial_topic_prefix}")
             
             client_id = f"{self.device_id}_{utime.ticks_ms()}"
             self.client = MQTTClient(client_id, MQTT_BROKER, port=MQTT_PORT)
-            self.client.set_callback(self.on_message)
+            self.client.set_callback(self.mqtt_callback)
             self.client.connect()
-            
-            # Subscrever ao tópico de registro inicial
-            registration_topic = f"{self.initial_topic_prefix}/registration"
-            self.client.subscribe(registration_topic)
-            print(f"Subscrito em: {registration_topic}")
-            
             self.connected = True
+            
+            print(f"MQTT conectado! ID: {client_id}")
+            
+            # Subscrever ao topic de registro CORRETO
+            registration_topic = f"{self.topic_prefix}/registration"
+            self.client.subscribe(registration_topic)
+            print(f"Inscrito em: {registration_topic}")
+            
+            # Enviar registro inicial
+            self._send_registration()
+            
             self.last_ping = utime.ticks_ms()
-            
-            print("MQTT conectado - enviando registro")
-            self.send_registration()
             return True
-            
         except Exception as e:
             print(f"Erro MQTT: {e}")
             self.connected = False
             return False
     
-    def on_message(self, topic, msg):
-        try:
-            topic_str = topic.decode()
-            msg_str = msg.decode()
-            
-            print(f"=== MQTT RECEBIDO ===")
-            print(f"Topic: {topic_str}")
-            print(f"Tamanho mensagem: {len(msg_str)} bytes")
-            
-            data = json.loads(msg_str)
-            
-            # Processar resposta de registro
-            if "/registration" in topic_str:
-                self.handle_registration_response(data)
-            
-            # Processar eventos
-            elif "/events" in topic_str:
-                print("Processando eventos...")
-                self.events = data.get('events', [])
-                self.events.sort(key=lambda x: x.get('time', '23:59'))
-                print(f"✅ {len(self.events)} eventos recebidos e ordenados")
-                
-                # Debug dos eventos recebidos
-                for i, event in enumerate(self.events[:3]):
-                    time_str = event.get('time', 'Todo dia')
-                    title = event.get('title', 'Sem título')
-                    print(f"  {i+1}. {time_str} - {title}")
-                    
-            print("==================")
-                    
-        except Exception as e:
-            print(f"Erro processando MQTT: {e}")
-    
-    def handle_registration_response(self, data):
-        """Processar resposta do servidor para registro"""
-        status = data.get('status', '')
-        reg_id = data.get('registration_id', '')
-        
-        # Verificar se a resposta é para este dispositivo
-        if reg_id != self.registration_id:
+    def _send_registration(self):
+        if not self.client or not self.connected:
             return
         
-        print(f"Status de registro: {status}")
-        
-        if status == 'approved':
-            # Dispositivo aprovado!
-            self.approved = True
-            self.assigned_device_id = data.get('device_id')
-            new_topic_prefix = data.get('topic_prefix')
-            
-            if new_topic_prefix and self.assigned_device_id:
-                print(f"✅ APROVADO!")
-                print(f"Novo device ID: {self.assigned_device_id}")
-                print(f"Topic prefix: {new_topic_prefix}")
-                
-                # Atualizar configurações
-                self.current_topic_prefix = new_topic_prefix
-                
-                # Subscrever ao tópico de eventos específico
-                events_topic = f"{new_topic_prefix}/devices/{self.assigned_device_id}/events"
-                self.client.subscribe(events_topic)
-                print(f"Subscrito em eventos: {events_topic}")
-                
-                # Se houver tópico de eventos na resposta, subscrever também
-                events_topic_from_response = data.get('events_topic')
-                if events_topic_from_response and events_topic_from_response != events_topic:
-                    self.client.subscribe(events_topic_from_response)
-                    print(f"Subscrito adicional: {events_topic_from_response}")
-        
-        elif status == 'pending':
-            print("⏳ Dispositivo em aprovação pendente")
-        
-        else:
-            print(f"❌ Status desconhecido: {status}")
-    
-    def send_registration(self):
-        """Enviar pedido de registro"""
-        if not self.connected:
-            return
-            
-        # Evitar spam de registros
         now = utime.ticks_ms()
-        if utime.ticks_diff(now, self.last_registration_attempt) < 5000:  # 5 segundos
+        if utime.ticks_diff(now, self.last_registration) < self.registration_interval:
             return
         
         try:
+            # Obter MAC address
+            mac_address = ''
+            try:
+                wlan = network.WLAN(network.STA_IF)
+                mac = ubinascii.hexlify(wlan.config('mac')).decode()
+                mac_address = mac
+            except:
+                pass
+            
             registration_data = {
-                'registration_id': self.registration_id,
-                'device_info': f'Pico 2W Magic Mirror',
+                'registration_id': self.device_id,
+                'device_info': 'Magic Mirror Pico 2W',
                 'timestamp': utime.time(),
-                'type': 'pico_2w',
-                'mac_address': ubinascii.hexlify(network.WLAN().config('mac')).decode()
+                'type': 'magic_mirror',
+                'version': '3.0',
+                'capabilities': ['display', 'clock', 'calendar', 'events'],
+                'status': 'requesting_approval',
+                'mac_address': mac_address
             }
             
-            topic = f"{self.current_topic_prefix}/registration"
             message = json.dumps(registration_data)
+            topic = f"{self.topic_prefix}/registration"
+            
             self.client.publish(topic, message)
+            print(f"Registro enviado: {topic}")
+            print(f"  ID: {self.device_id}")
             
-            self.last_registration_attempt = now
-            print(f"Registro enviado para: {topic}")
-            
+            self.last_registration = now
         except Exception as e:
             print(f"Erro enviando registro: {e}")
     
-    def check_messages(self):
-        if not self.connected or not self.client:
-            return
-            
+    def process_messages(self):
+        if not self.client or not self.connected:
+            return False
+        
         try:
-            # Verificar mensagens
             self.client.check_msg()
             
-            # Ping periódico
             now = utime.ticks_ms()
-            if utime.ticks_diff(now, self.last_ping) > 30000:  # 30 segundos
+            if utime.ticks_diff(now, self.last_ping) > self.ping_interval:
                 self.client.ping()
                 self.last_ping = now
             
-            # Re-enviar registro se ainda não aprovado
-            if not self.approved and utime.ticks_diff(now, self.last_registration_attempt) > 30000:  # 30 segundos
-                print("Re-enviando registro (ainda não aprovado)")
-                self.send_registration()
-                
+            if not self.approved and utime.ticks_diff(now, self.last_registration) > self.registration_interval:
+                print("Re-enviando registro...")
+                self._send_registration()
+            
+            return True
         except Exception as e:
-            print(f"Erro MQTT check: {e}")
+            print(f"Erro processando: {e}")
+            self.connected = False
+            return False
+    
+    def disconnect(self):
+        if self.client:
+            try:
+                self.client.disconnect()
+            except:
+                pass
+            self.client = None
             self.connected = False
     
     def get_events(self):
-        return self.events
+        return self.events.copy()
+    
+    def is_connected(self):
+        return self.connected
     
     def is_approved(self):
         return self.approved
 
-# ==================== CLASSE PRINCIPAL ====================
+# ==================== MAGIC MIRROR ====================
 class MagicMirror:
     def __init__(self):
-        self.network_manager = NetworkManager()
-        self.mqtt_handler = None
+        print("Inicializando Magic Mirror...")
         
-        # Gerar device ID único
-        self.unique_device_id = get_unique_device_id()
-        print(f"🆔 Device ID único: {self.unique_device_id}")
+        self.network = NetworkManager()
+        self.mqtt = None
+        self.device_id = get_unique_device_id()
         
-        # Estado anterior para otimização
-        self.last_display = {
-            'h1': None, 'h2': None, 'm1': None, 'm2': None, 
-            's1': None, 's2': None, 'date': None, 'status': None, 'events': None
+        print(f"Device ID: {self.device_id}")
+        
+        self.last_display_state = {
+            'h1': None, 'h2': None,
+            'm1': None, 'm2': None,
+            's1': None, 's2': None,
+            'date': None,
+            'events': None,
+            'status': None
         }
         
-        # Posições dos dígitos
-        self.positions = {
-            'h1': (100, 60), 'h2': (140, 60),
-            'm1': (200, 60), 'm2': (240, 60),
-            's1': (300, 60), 's2': (340, 60),
+        self.digit_positions = {
+            'h1': (120, 60), 'h2': (160, 60),
+            'm1': (220, 60), 'm2': (260, 60),
+            's1': (320, 60), 's2': (360, 60),
         }
         
         self.init_system()
     
     def init_system(self):
-        print("Inicializando Magic Mirror...")
+        print("=" * 50)
+        print("MAGIC MIRROR - INICIALIZACAO")
+        print("=" * 50)
         
-        # Display
-        init_display()
-        self.show_splash_screen()
+        if not init_display():
+            print("Falha display")
+            return
         
-        # WiFi
-        wifi_success = self.network_manager.connect_wifi(WIFI_SSID, WIFI_PASSWORD)
+        self.show_splash()
         
-        if wifi_success:
-            # NTP
-            ntp_success = self.network_manager.sync_ntp_brasilia()
-            if not ntp_success:
+        wifi_ok = self.network.connect_wifi(WIFI_SSID, WIFI_PASSWORD)
+        if wifi_ok:
+            self.show_status("WiFi conectado", GREEN)
+            
+            ntp_ok = self.network.sync_ntp_brasilia()
+            if ntp_ok:
+                self.show_status("Horario sincronizado", GREEN)
+            else:
+                self.show_status("NTP falhou", YELLOW)
                 rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))
             
-            # MQTT
-            self.mqtt_handler = MQTTHandler(self.unique_device_id, TOPIC_PREFIX)
-            mqtt_success = self.mqtt_handler.connect(self.network_manager)
+            self.mqtt = MQTTManager(self.device_id, TOPIC_PREFIX)
+            mqtt_ok = self.mqtt.connect(self.network)
             
-            if mqtt_success:
-                self.show_connection_status("CONECTADO - AGUARDANDO APROVACAO", YELLOW)
+            if mqtt_ok:
+                self.show_status("MQTT OK - aguardando", YELLOW)
             else:
-                self.show_connection_status("MQTT FALHOU", RED)
+                self.show_status("MQTT falhou", RED)
         else:
+            self.show_status("WiFi falhou", RED)
             rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))
-            self.show_connection_status("WIFI FALHOU", RED)
         
         utime.sleep(3)
         self.setup_main_screen()
+        
+        gc.collect()
+        print(f"Memoria livre: {gc.mem_free()}")
+        print("Inicializacao completa!")
     
-    def show_splash_screen(self):
+    def show_splash(self):
         clear_screen(BLACK)
-        draw_centered(80, "MAGIC MIRROR", WHITE, 3)
-        draw_centered(120, "PICO 2W v2.0", CYAN, 2)
-        draw_centered(150, f"ID: {self.unique_device_id}", YELLOW, 1)
-        draw_centered(180, "INICIALIZANDO...", WHITE, 1)
+        draw_centered(60, "MAGIC MIRROR", WHITE, 3)
+        draw_centered(100, "PICO 2W", CYAN, 2)
+        draw_centered(130, f"ID: {self.device_id}", YELLOW, 1)
+        draw_centered(150, "v3.0 - CORRIGIDO", GREEN, 1)
+        draw_centered(180, "Inicializando...", WHITE, 1)
     
-    def show_connection_status(self, message, color):
-        fill_rect(0, 200, DISPLAY_WIDTH, 30, BLACK)
+    def show_status(self, message, color):
+        fill_rect(0, 200, DISPLAY_WIDTH, 40, BLACK)
         draw_centered(210, message, color, 1)
+        print(f"Status: {message}")
     
     def setup_main_screen(self):
         clear_screen(BLACK)
-        
-        # Desenhar separadores do relógio
-        draw_text(180, 60, ":", WHITE, 4)
-        draw_text(280, 60, ":", WHITE, 4)
-        
-        # Limpar cache de display
-        for key in self.last_display:
-            self.last_display[key] = None
+        draw_text(200, 60, ":", WHITE, 4)
+        draw_text(300, 60, ":", WHITE, 4)
+        for key in self.last_display_state:
+            self.last_display_state[key] = None
+        print("Tela principal OK")
     
-    def update_single_digit(self, position_key, new_digit):
-        if self.last_display[position_key] != new_digit:
-            x, y = self.positions[position_key]
+    def update_single_digit(self, digit_key, new_digit):
+        if self.last_display_state[digit_key] != new_digit:
+            x, y = self.digit_positions[digit_key]
             fill_rect(x, y, 32, 32, BLACK)
             draw_char(x, y, new_digit, WHITE, 4)
-            self.last_display[position_key] = new_digit
+            self.last_display_state[digit_key] = new_digit
     
-    def update_events(self):
-        if not self.mqtt_handler:
-            return
-            
-        events = self.mqtt_handler.get_events()
-        events_start_y = 170
-        events_area_height = 120
-        line_height = 18
-        max_events = min(6, events_area_height // line_height)  # Máximo 6 eventos
-        
-        # Preparar lista de eventos para exibição
-        events_display = []
-        for i, event in enumerate(events[:max_events]):
-            time_str = event.get('time', '').strip()
-            title = event.get('title', 'Evento sem título').strip()
-            
-            # Limitar tamanho do título
-            if len(title) > 35:
-                title = title[:32] + "..."
-            
-            if time_str:
-                display_text = f"{time_str} {title}"
-            else:
-                display_text = f"Dia todo: {title}"
-                
-            events_display.append(display_text)
-        
-        # Comparar com exibição anterior
-        current_events_text = "\n".join(events_display)
-        if self.last_display['events'] != current_events_text:
-            print(f"🔄 Atualizando display de eventos ({len(events_display)} eventos)")
-            
-            # Limpar área de eventos
-            fill_rect(0, events_start_y, DISPLAY_WIDTH, events_area_height, BLACK)
-            
-            if events_display:
-                # Cabeçalho
-                draw_text(10, events_start_y, "EVENTOS DE HOJE:", YELLOW, 1)
-                
-                # Listar eventos
-                for i, event_text in enumerate(events_display):
-                    y_pos = events_start_y + 15 + (i * line_height)
-                    color = WHITE if i % 2 == 0 else CYAN
-                    
-                    # Garantir que não ultrapasse a tela
-                    if y_pos + 8 < events_start_y + events_area_height:
-                        draw_text(10, y_pos, event_text, color, 1)
-            else:
-                # Nenhum evento
-                draw_text(10, events_start_y, "NENHUM EVENTO HOJE", ORANGE, 1)
-            
-            self.last_display['events'] = current_events_text
-            print("✅ Display de eventos atualizado")
-    
-    def update_clock(self):
+    def update_clock_display(self):
         current = rtc.datetime()
         h, m, s = current[4], current[5], current[6]
-        d, month, y = current[2], current[1], current[0]
         
-        # Dígitos do relógio
         h1, h2 = f"{h:02d}"[0], f"{h:02d}"[1]
-        m1, m2 = f"{m:02d}"[0], f"{m:02d}"[1]  
+        m1, m2 = f"{m:02d}"[0], f"{m:02d}"[1]
         s1, s2 = f"{s:02d}"[0], f"{s:02d}"[1]
         
         self.update_single_digit('h1', h1)
@@ -616,112 +610,179 @@ class MagicMirror:
         self.update_single_digit('m2', m2)
         self.update_single_digit('s1', s1)
         self.update_single_digit('s2', s2)
-        
-        # Data
-        date_str = f"{d:02d}/{month:02d}/{y}"
-        if self.last_display['date'] != date_str:
-            fill_rect(0, 120, DISPLAY_WIDTH, 30, BLACK)
-            draw_centered(125, date_str, CYAN, 2)
-            self.last_display['date'] = date_str
-        
-        # Status de conexão
-        self.update_connection_status()
     
-    def update_connection_status(self):
-        network_connected = self.network_manager.connected
-        mqtt_connected = self.mqtt_handler and self.mqtt_handler.connected
-        mqtt_approved = self.mqtt_handler and self.mqtt_handler.is_approved()
+    def update_date_display(self):
+        current = rtc.datetime()
+        day, month, year = current[2], current[1], current[0]
+        weekday = current[3]
         
-        if network_connected and mqtt_connected and mqtt_approved:
+        weekdays = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM']
+        weekday_name = weekdays[weekday]
+        
+        date_str = f"{weekday_name} {day:02d}/{month:02d}/{year}"
+        
+        if self.last_display_state['date'] != date_str:
+            fill_rect(0, 130, DISPLAY_WIDTH, 25, BLACK)
+            draw_centered(130, date_str, CYAN, 2)
+            self.last_display_state['date'] = date_str
+    
+    def update_events_display(self):
+        if not self.mqtt:
+            return
+        
+        events = self.mqtt.get_events()
+        start_y = 170
+        area_height = 120
+        line_height = 18
+        max_events = min(6, area_height // line_height)
+        
+        events_text_lines = []
+        
+        if events:
+            events_text_lines.append("EVENTOS DE HOJE:")
+            for i, event in enumerate(events[:max_events]):
+                if isinstance(event, dict):
+                    time_str = event.get('time', '').strip()
+                    title = event.get('title', 'Evento').strip()
+                    
+                    if len(title) > 32:
+                        title = title[:29] + "..."
+                    
+                    if time_str:
+                        line = f"{time_str} {title}"
+                    else:
+                        line = f"Todo dia: {title}"
+                else:
+                    line = str(event)[:40]
+                
+                events_text_lines.append(line)
+        else:
+            events_text_lines.append("NENHUM EVENTO HOJE")
+        
+        events_display_text = "\n".join(events_text_lines)
+        
+        if self.last_display_state['events'] != events_display_text:
+            fill_rect(0, start_y, DISPLAY_WIDTH, area_height, BLACK)
+            
+            for i, line in enumerate(events_text_lines):
+                y_pos = start_y + (i * line_height)
+                
+                if y_pos + 10 < start_y + area_height:
+                    if i == 0:
+                        color = YELLOW
+                        x_pos = 10
+                    else:
+                        color = WHITE if (i % 2) == 1 else CYAN
+                        x_pos = 15
+                    
+                    draw_text(x_pos, y_pos, line, color, 1)
+            
+            self.last_display_state['events'] = events_display_text
+            print(f"Eventos atualizados ({len(events)})")
+    
+    def update_status_display(self):
+        wifi_ok = self.network.is_connected()
+        mqtt_ok = self.mqtt and self.mqtt.is_connected()
+        approved = self.mqtt and self.mqtt.is_approved()
+        
+        if wifi_ok and mqtt_ok and approved:
             status_text = "SINCRONIZADO"
             status_color = GREEN
-        elif network_connected and mqtt_connected:
+        elif wifi_ok and mqtt_ok:
             status_text = "AGUARDANDO APROVACAO"
             status_color = YELLOW
-        elif network_connected:
-            status_text = "WIFI - SEM MQTT"
+        elif wifi_ok:
+            status_text = "WIFI OK - MQTT OFF"
             status_color = ORANGE
         else:
             status_text = "DESCONECTADO"
             status_color = RED
         
-        if self.last_display['status'] != (status_text, status_color):
-            fill_rect(0, 295, DISPLAY_WIDTH, 20, BLACK)
+        if self.last_display_state['status'] != status_text:
+            fill_rect(0, 300, DISPLAY_WIDTH, 20, BLACK)
             draw_centered(300, status_text, status_color, 1)
-            self.last_display['status'] = (status_text, status_color)
+            self.last_display_state['status'] = status_text
     
-    def run(self):
-        sync_counter = 0
-        event_check_counter = 0
+    def run_main_loop(self):
+        print("Iniciando loop principal...")
         
-        print("🚀 Iniciando loop principal...")
+        loop_count = 0
+        ntp_sync_counter = 0
+        gc_counter = 0
         
         while True:
             try:
-                # Verificar mensagens MQTT
-                if self.mqtt_handler:
-                    self.mqtt_handler.check_messages()
+                if self.mqtt and self.mqtt.is_connected():
+                    if not self.mqtt.process_messages():
+                        print("Falha MQTT")
                 
-                # Atualizar relógio (sempre)
-                self.update_clock()
+                self.update_clock_display()
+                self.update_date_display()
+                self.update_status_display()
                 
-                # Atualizar eventos (menos frequente para economizar recursos)
-                event_check_counter += 1
-                if event_check_counter >= 10:  # A cada 5 segundos (10 * 500ms)
-                    self.update_events()
-                    event_check_counter = 0
+                if loop_count % 10 == 0:
+                    self.update_events_display()
                 
-                # Re-sincronizar NTP a cada hora
-                sync_counter += 1
-                if sync_counter >= 7200:  # 1 hora em ciclos de 500ms
-                    if self.network_manager.connected:
-                        print("🕐 Re-sincronizando NTP...")
-                        self.network_manager.sync_ntp_brasilia()
-                    sync_counter = 0
+                ntp_sync_counter += 1
+                if ntp_sync_counter >= 7200:
+                    if self.network.is_connected():
+                        print("Re-sincronizando NTP...")
+                        self.network.sync_ntp_brasilia()
+                    ntp_sync_counter = 0
                 
-                # Garbage collection periódico
-                if sync_counter % 240 == 0:  # A cada 2 minutos
+                gc_counter += 1
+                if gc_counter >= 240:
                     gc.collect()
+                    gc_counter = 0
                     
-                    # Log de status a cada 2 minutos
-                    if self.mqtt_handler:
-                        events_count = len(self.mqtt_handler.get_events())
-                        approved = self.mqtt_handler.is_approved()
-                        print(f"📊 Status: {events_count} eventos | Aprovado: {approved}")
+                    if loop_count % 240 == 0:
+                        free_mem = gc.mem_free()
+                        print(f"Memoria: {free_mem} | Eventos: {len(self.mqtt.get_events()) if self.mqtt else 0}")
                 
+                loop_count += 1
                 utime.sleep_ms(500)
                 
             except KeyboardInterrupt:
-                print("🛑 Interrompido pelo usuário")
+                print("\nInterrompido")
                 break
             except Exception as e:
-                print(f"❌ Erro no loop principal: {e}")
-                utime.sleep(2)  # Pausa maior em caso de erro
+                print(f"Erro loop: {e}")
+                utime.sleep(2)
+        
+        if self.mqtt:
+            self.mqtt.disconnect()
+        print("Sistema finalizado")
 
-# ==================== EXECUÇÃO ====================
+# ==================== MAIN ====================
 def main():
-    print("=" * 50)
-    print("🪐 MAGIC MIRROR - PICO 2W v2.0")
-    print("Sistema corrigido com MQTT dinâmico")
-    print("=" * 50)
+    print("=" * 60)
+    print("MAGIC MIRROR - PICO 2W v3.0 CORRIGIDO")
+    print("=" * 60)
+    print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT}")
+    print(f"Topic: {TOPIC_PREFIX}")
+    print(f"Timezone: UTC{TIMEZONE_OFFSET}")
+    print("=" * 60)
     
     try:
+        if WIFI_SSID == "SuaRedeWiFi":
+            print("ATENCAO: Configure WiFi no config.py")
+        
+        if not MQTT_AVAILABLE:
+            print("ERRO: umqtt.simple nao encontrado!")
+            return
+        
         mirror = MagicMirror()
-        mirror.run()
+        mirror.run_main_loop()
+        
     except Exception as e:
-        print(f"❌ Erro fatal: {e}")
+        print(f"ERRO FATAL: {e}")
         try:
-            # Tentar mostrar erro no display
             clear_screen(BLACK)
-            draw_centered(100, "ERRO FATAL", RED, 3)
-            draw_centered(140, "VERIFIQUE CONSOLE", WHITE, 1)
-            draw_centered(160, str(e)[:30], YELLOW, 1)
-            
+            draw_centered(80, "ERRO FATAL", RED, 3)
+            draw_centered(120, "Verifique console", WHITE, 1)
             while True:
                 utime.sleep(10)
         except:
-            # Se nem o display funcionar
-            print("💀 Erro crítico - sistema parado")
             while True:
                 utime.sleep(10)
 

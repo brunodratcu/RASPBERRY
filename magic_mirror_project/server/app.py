@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Magic Mirror - Backend Atualizado com MQTT
+Magic Mirror - Backend CORRIGIDO
 Sistema completo para sincronização de eventos do Outlook
-CORREÇÕES: Melhor handling de dispositivos e topic prefix dinâmico
+CORREÇÃO: Topic único e sincronização garantida
 """
 
 import sqlite3
@@ -31,15 +31,15 @@ app.config.update(
 
 CORS(app, supports_credentials=True)
 
-# Configurações MQTT
+# Configurações MQTT - TOPIC ÚNICO FIXO
 MQTT_BROKER = "test.mosquitto.org"
 MQTT_PORT = 1883
-TOPIC_PREFIX = f"magic_mirror_{secrets.token_urlsafe(8)}"
+TOPIC_PREFIX = "magic_mirror_stable"  # ÚNICO E FIXO
 
 GRAPH_ENDPOINT = 'https://graph.microsoft.com/v1.0/'
 GRAPH_SCOPES = ['https://graph.microsoft.com/Calendars.Read']
 
-print(f"🆔 TOPIC PREFIX GERADO: {TOPIC_PREFIX}")
+print(f"🔧 TOPIC PREFIX: {TOPIC_PREFIX}")
 
 # ==================== BANCO DE DADOS ====================
 def init_db():
@@ -69,15 +69,8 @@ def init_db():
         )
     ''')
     
-    # Inserir topic_prefix na configuração se não existir
-    cursor.execute('''
-        INSERT OR IGNORE INTO config (id, topic_prefix) VALUES (1, ?)
-    ''', (TOPIC_PREFIX,))
-    
-    # Atualizar topic_prefix se mudou
-    cursor.execute('''
-        UPDATE config SET topic_prefix = ? WHERE id = 1
-    ''', (TOPIC_PREFIX,))
+    cursor.execute('INSERT OR IGNORE INTO config (id, topic_prefix) VALUES (1, ?)', (TOPIC_PREFIX,))
+    cursor.execute('UPDATE config SET topic_prefix = ? WHERE id = 1', (TOPIC_PREFIX,))
     
     conn.commit()
     conn.close()
@@ -132,7 +125,7 @@ def get_valid_token():
 def get_today_events():
     token = get_valid_token()
     if not token:
-        print("⚠️ Nenhum token válido disponível")
+        print("⚠️  Token não disponível")
         return []
     
     today = datetime.now().date()
@@ -158,17 +151,19 @@ def get_today_events():
                     'time': start_dt.strftime('%H:%M') if not event.get('isAllDay') else '',
                     'isAllDay': event.get('isAllDay', False)
                 })
-            print(f"📅 Obtidos {len(events)} eventos do Outlook")
+            print(f"✅ {len(events)} eventos obtidos do Outlook")
             return events
         else:
-            print(f"⚠️ Erro Graph API: {response.status_code}")
+            print(f"❌ Erro Graph API: {response.status_code}")
+            if response.status_code == 401:
+                print("   → Token expirado - reautentique no navegador")
             return []
     except Exception as e:
         print(f"❌ Erro ao buscar eventos: {e}")
     
     return []
 
-# ==================== MQTT MANAGER MELHORADO ====================
+# ==================== MQTT MANAGER ====================
 class MQTTManager:
     def __init__(self):
         self.connected = False
@@ -182,7 +177,6 @@ class MQTTManager:
     def connect(self):
         try:
             print(f"🔌 Conectando MQTT: {MQTT_BROKER}:{MQTT_PORT}")
-            print(f"🏷️ Topic Prefix: {self.topic_prefix}")
             self.client.connect(MQTT_BROKER, MQTT_PORT, 60)
             self.client.loop_start()
         except Exception as e:
@@ -191,11 +185,13 @@ class MQTTManager:
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.connected = True
-            # Subscrever ao tópico de registro
+            
+            # Subscrever APENAS ao topic correto
             registration_topic = f"{self.topic_prefix}/registration"
             client.subscribe(registration_topic)
+            
             print(f"✅ MQTT conectado")
-            print(f"👂 Escutando registros em: {registration_topic}")
+            print(f"👂 Escutando: {registration_topic}")
         else:
             print(f"❌ Falha MQTT: código {rc}")
     
@@ -208,114 +204,91 @@ class MQTTManager:
             topic_str = msg.topic
             payload = json.loads(msg.payload.decode())
             
-            print(f"📨 MQTT recebido em: {topic_str}")
-            
-            if f"{self.topic_prefix}/registration" == topic_str:
-                self.handle_registration(payload)
-            else:
-                print(f"⚠️ Tópico não reconhecido: {topic_str}")
+            # Processar apenas registration requests
+            if 'registration' in topic_str:
+                reg_id = payload.get('registration_id')
+                status = payload.get('status', '')
                 
+                # Ignorar echos das próprias aprovações
+                if status == 'approved' and 'device_id' in payload:
+                    return
+                
+                # Processar solicitações do Pico
+                if reg_id and status == 'requesting_approval':
+                    print(f"\n📨 NOVA SOLICITAÇÃO: {reg_id}")
+                    self.handle_registration(payload)
+                    
         except Exception as e:
-            print(f"❌ Erro processando MQTT: {e}")
+            print(f"❌ Erro MQTT: {e}")
     
     def handle_registration(self, payload):
-        print(f"=== DEBUG REGISTRATION ===")
-        print(f"Payload recebido: {payload}")
-        print(f"Payload type: {type(payload)}")
-        
+        """Auto-aprovar dispositivo e enviar confirmação"""
         reg_id = payload.get('registration_id')
         device_info = payload.get('device_info', 'Dispositivo desconhecido')
         mac_address = payload.get('mac_address', '')
         
-        print(f"Registration ID extraído: {reg_id}")
-        print(f"Device info: {device_info}")
-        print("===========================")
-    
         if not reg_id:
-            print("Registration ID ausente")
             return
-
-            reg_id = payload.get('registration_id')
-            device_info = payload.get('device_info', 'Dispositivo desconhecido')
-            mac_address = payload.get('mac_address', '')
-            
-            if not reg_id:
-                print("⚠️ Registration ID ausente")
-                return
-            
-            print(f"📝 Processando registro: {reg_id}")
-            print(f"   Info: {device_info}")
-            if mac_address:
-                print(f"   MAC: {mac_address}")
-            
-            conn = get_db()
-            
-            # Verificar se dispositivo já existe
+        
+        conn = get_db()
+        
+        try:
             device = conn.execute('SELECT * FROM devices WHERE registration_id = ?', (reg_id,)).fetchone()
             
-            if device:
-                # Atualizar último contato
+            if device and device['status'] == 'approved' and device['device_id']:
+                # Dispositivo já aprovado - reenviar aprovação
+                device_id = device['device_id']
+                print(f"✓ Re-aprovando: {reg_id} → {device_id}")
+                
                 conn.execute('UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE registration_id = ?', (reg_id,))
                 conn.commit()
-                
-                if device['status'] == 'approved':
-                    # Dispositivo já aprovado - enviar confirmação completa
-                    response = {
-                        'registration_id': reg_id,
-                        'status': 'approved',
-                        'device_id': device['device_id'],
-                        'topic_prefix': self.topic_prefix,
-                        'events_topic': f"{self.topic_prefix}/devices/{device['device_id']}/events"
-                    }
-                    
-                    # Publicar resposta
-                    self.client.publish(f"{self.topic_prefix}/registration", json.dumps(response))
-                    print(f"✅ Dispositivo aprovado reconectado: {device['device_id']}")
-                    
-                    # Forçar sincronização imediata
-                    threading.Thread(target=lambda: time.sleep(1) or self.sync_device(device['device_id']), daemon=True).start()
-                else:
-                    # Dispositivo ainda pendente
-                    response = {
-                        'registration_id': reg_id,
-                        'status': 'pending',
-                        'topic_prefix': self.topic_prefix
-                    }
-                    self.client.publish(f"{self.topic_prefix}/registration", json.dumps(response))
-                    print(f"⏳ Dispositivo ainda pendente: {reg_id}")
             else:
-                # Novo dispositivo - inserir como pendente
-                conn.execute('''
-                    INSERT INTO devices (registration_id, device_info, mac_address, status) 
-                    VALUES (?, ?, ?, 'pending')
-                ''', (reg_id, device_info, mac_address))
-                conn.commit()
+                # Novo dispositivo ou pendente - aprovar
+                device_id = f"mirror_{secrets.token_urlsafe(6)}"
                 
-                response = {
-                    'registration_id': reg_id,
-                    'status': 'pending',
-                    'topic_prefix': self.topic_prefix,
-                    'message': 'Dispositivo registrado. Aguardando aprovação.'
-                }
-                self.client.publish(f"{self.topic_prefix}/registration", json.dumps(response))
-                print(f"🆕 Novo dispositivo registrado: {reg_id}")
+                if device:
+                    conn.execute('''UPDATE devices SET device_id = ?, status = 'approved', 
+                                    last_seen = CURRENT_TIMESTAMP WHERE registration_id = ?''', 
+                                (device_id, reg_id))
+                else:
+                    conn.execute('''INSERT INTO devices (registration_id, device_id, device_info, 
+                                    mac_address, status) VALUES (?, ?, ?, ?, 'approved')''', 
+                                (reg_id, device_id, device_info, mac_address))
+                
+                conn.commit()
+                print(f"✅ APROVADO: {reg_id} → {device_id}")
             
+            # Enviar aprovação
+            response = {
+                'registration_id': reg_id,
+                'status': 'approved',
+                'device_id': device_id,
+                'topic_prefix': self.topic_prefix,
+                'events_topic': f"{self.topic_prefix}/devices/{device_id}/events"
+            }
+            
+            approval_topic = f"{self.topic_prefix}/registration"
+            self.client.publish(approval_topic, json.dumps(response))
+            print(f"📤 Aprovação enviada em: {approval_topic}")
+            
+            # Sincronizar eventos após 2 segundos
+            threading.Thread(target=lambda: time.sleep(2) or self.sync_device(device_id), daemon=True).start()
+            
+        except Exception as e:
+            print(f"❌ Erro no registro: {e}")
+        finally:
             conn.close()
-        
+    
     def sync_device(self, device_id):
+        """Sincronizar eventos com dispositivo"""
         if not self.connected:
-            print("❌ MQTT não conectado - não é possível sincronizar")
             return False
         
-        print(f"🔄 Iniciando sincronização para: {device_id}")
+        print(f"🔄 Sincronizando: {device_id}")
         
-        # Obter eventos do Outlook
         events = get_today_events()
-        
-        # Ordenar eventos por horário
         events_sorted = sorted(events, key=lambda x: x.get('time', '23:59'))
         
-        # Preparar dados para envio
         events_data = {
             'device_id': device_id,
             'date': datetime.now().strftime('%Y-%m-%d'),
@@ -325,162 +298,62 @@ class MQTTManager:
             'server_info': {
                 'topic_prefix': self.topic_prefix,
                 'timestamp': datetime.now().strftime('%H:%M:%S'),
-                'server_version': '2.0'
+                'server_version': '3.0'
             }
         }
         
-        # Publicar eventos
         topic = f"{self.topic_prefix}/devices/{device_id}/events"
         message = json.dumps(events_data, ensure_ascii=False)
         
         try:
-            result = self.client.publish(topic, message)
-            
-            print(f"📡 Dados publicados em: {topic}")
-            print(f"📦 Tamanho da mensagem: {len(message)} bytes")
-            print(f"📅 Eventos enviados: {len(events_sorted)}")
-            
-            # Log dos primeiros eventos
-            for i, event in enumerate(events_sorted[:3]):
-                time_str = event.get('time', 'Todo dia')
-                title = event.get('title', 'Sem título')
-                print(f"   {i+1}. {time_str} - {title}")
-            
-            if len(events_sorted) > 3:
-                print(f"   ... e mais {len(events_sorted) - 3} eventos")
-            
-            print(f"✅ Sincronização concluída para {device_id}")
+            self.client.publish(topic, message)
+            print(f"✅ Publicado em: {topic}")
+            print(f"   {len(events_sorted)} eventos enviados")
             return True
-            
         except Exception as e:
             print(f"❌ Erro ao publicar: {e}")
             return False
     
     def approve_device(self, registration_id):
-        """Aprovar dispositivo e gerar device_id"""
+        """Aprovar dispositivo manualmente"""
         device_id = f"mirror_{secrets.token_urlsafe(6)}"
         
         conn = get_db()
-        
-        # Atualizar status do dispositivo
-        conn.execute('''
-            UPDATE devices SET device_id = ?, status = 'approved', last_seen = CURRENT_TIMESTAMP 
-            WHERE registration_id = ?
-        ''', (device_id, registration_id))
+        conn.execute('''UPDATE devices SET device_id = ?, status = 'approved', 
+                        last_seen = CURRENT_TIMESTAMP WHERE registration_id = ?''', 
+                    (device_id, registration_id))
         conn.commit()
+        conn.close()
         
-        print(f"✅ Dispositivo aprovado: {registration_id} → {device_id}")
-        
-        # Enviar confirmação de aprovação
         response = {
             'registration_id': registration_id,
             'status': 'approved',
             'device_id': device_id,
             'topic_prefix': self.topic_prefix,
-            'events_topic': f"{self.topic_prefix}/devices/{device_id}/events",
-            'message': 'Dispositivo aprovado com sucesso!'
+            'events_topic': f"{self.topic_prefix}/devices/{device_id}/events"
         }
         
         self.client.publish(f"{self.topic_prefix}/registration", json.dumps(response))
-        
-        # Aguardar um pouco e sincronizar
         threading.Thread(target=lambda: time.sleep(2) or self.sync_device(device_id), daemon=True).start()
         
-        conn.close()
         return device_id
 
-# Instanciar MQTT Manager
 mqtt_manager = MQTTManager()
 
 # ==================== ROTAS WEB ====================
 @app.route('/')
 def index():
-    # Lista de possíveis locais para o arquivo HTML
-    possible_paths = [
-        'index.html',
-        './index.html', 
-        'templates/index.html',
-        os.path.join(os.path.dirname(__file__), 'index.html'),
-        os.path.join(os.path.dirname(__file__), '', 'index.html')
-    ]
+    possible_paths = ['index.html', './index.html', 'templates/index.html']
     
     for path in possible_paths:
         if os.path.exists(path):
-            print(f"Servindo frontend de: {path}")
             return send_file(path)
     
-    # Se não encontrou, retorna o HTML inline
     return """
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Magic Mirror - Interface não encontrada</title>
-    <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            margin: 50px; 
-            background: #f0f0f0;
-        }
-        .container {
-            background: white;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            max-width: 600px;
-            margin: 0 auto;
-        }
-        h1 { color: #d32f2f; }
-        .info { 
-            background: #e3f2fd; 
-            padding: 20px; 
-            border-radius: 5px; 
-            margin: 20px 0; 
-            text-align: left;
-        }
-        .paths { 
-            background: #f5f5f5; 
-            padding: 15px; 
-            border-radius: 5px; 
-            font-family: monospace;
-            text-align: left;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Interface Magic Mirror não encontrada</h1>
-        
-        <div class="info">
-            <strong>O frontend HTML não foi encontrado.</strong>
-            <p>Para resolver:</p>
-            <ol>
-                <li>Salve o arquivo HTML como <code>index.html</code> na mesma pasta que app.py</li>
-                <li>Ou coloque na pasta <code>static/index.html</code></li>
-                <li>Reinicie o servidor</li>
-            </ol>
-        </div>
-        
-        <div class="paths">
-            <strong>Locais verificados:</strong><br>""" + "<br>".join([f"• {path}" for path in possible_paths]) + """
-        </div>
-        
-        <p>
-            <strong>Diretório atual:</strong> """ + os.getcwd() + """<br>
-            <strong>Arquivos na pasta:</strong> """ + ", ".join([f for f in os.listdir('.') if f.endswith('.html')]) + """
-        </p>
-        
-        <div style="margin-top: 30px;">
-            <button onclick="location.reload()" style="padding: 10px 20px; background: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                Tentar Novamente
-            </button>
-        </div>
-    </div>
-</body>
-</html>
-    """
+    <h1>Frontend não encontrado</h1>
+    <p>Coloque o arquivo index.html na mesma pasta que app.py</p>
+    <p><strong>Diretório atual:</strong> """ + os.getcwd() + """</p>
+    """, 404
 
 @app.route('/favicon.ico')
 def favicon():
@@ -494,14 +367,11 @@ def save_config():
         return jsonify({'error': 'Campos obrigatórios ausentes'}), 400
     
     conn = get_db()
-    conn.execute('''
-        UPDATE config SET client_id = ?, tenant_id = ?, client_secret = ?
-        WHERE id = 1
-    ''', (config['clientId'], config['tenantId'], config['clientSecret']))
+    conn.execute('''UPDATE config SET client_id = ?, tenant_id = ?, client_secret = ? WHERE id = 1''',
+                (config['clientId'], config['tenantId'], config['clientSecret']))
     conn.commit()
     conn.close()
     
-    print(f"💾 Configuração salva: Client ID = {config['clientId'][:8]}...")
     return jsonify({'success': True})
 
 @app.route('/api/config', methods=['GET'])
@@ -518,11 +388,7 @@ def get_config():
             'has_credentials': bool(config['client_id'] and config['tenant_id'] and config['client_secret']),
             'has_token': bool(config['access_token'])
         })
-    return jsonify({
-        'topic_prefix': TOPIC_PREFIX, 
-        'has_credentials': False, 
-        'has_token': False
-    })
+    return jsonify({'topic_prefix': TOPIC_PREFIX, 'has_credentials': False, 'has_token': False})
 
 @app.route('/api/status')
 def status():
@@ -536,7 +402,7 @@ def status():
     has_token = bool(config and config['access_token'] and len(config['access_token']) > 10)
     
     return jsonify({
-        'online': True, 
+        'online': True,
         'mqtt': mqtt_manager.connected,
         'topic_prefix': TOPIC_PREFIX,
         'has_azure_config': has_credentials,
@@ -550,30 +416,12 @@ def auth():
     try:
         app_msal = get_msal_app()
         if not app_msal:
-            return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">❌ Configuração Ausente</h2>
-                <p>Configure suas credenciais Azure primeiro na aba "Configuração do Passe".</p>
-                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px;">Fechar</button>
-            </div>
-            ''', 400
+            return '<h2>Configure suas credenciais Azure primeiro</h2>', 400
         
-        auth_url = app_msal.get_authorization_request_url(
-            GRAPH_SCOPES,
-            redirect_uri='http://localhost:5000/callback'
-        )
-        
+        auth_url = app_msal.get_authorization_request_url(GRAPH_SCOPES, redirect_uri='http://localhost:5000/callback')
         return redirect(auth_url)
-        
     except Exception as e:
-        print(f"❌ Erro na autenticação: {e}")
-        return f'''
-        <div style="text-align: center; margin: 50px; font-family: Arial;">
-            <h2 style="color: #d32f2f;">❌ Erro de Autenticação</h2>
-            <p>Erro: {str(e)}</p>
-            <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px;">Fechar</button>
-        </div>
-        ''', 500
+        return f'<h2>Erro: {str(e)}</h2>', 500
 
 @app.route('/callback')
 def callback():
@@ -581,91 +429,35 @@ def callback():
         code = request.args.get('code')
         error = request.args.get('error')
         
-        if error:
-            return f'''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">❌ Erro de Autenticação</h2>
-                <p>Erro retornado pela Microsoft: {error}</p>
-                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px;">Fechar</button>
-            </div>
-            '''
-        
-        if not code:
-            return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">❌ Código Ausente</h2>
-                <p>Código de autorização não recebido.</p>
-                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px;">Fechar</button>
-            </div>
-            '''
+        if error or not code:
+            return f'<h2>Erro: {error or "Código ausente"}</h2>'
         
         app_msal = get_msal_app()
         if not app_msal:
-            return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">❌ Erro de Configuração</h2>
-                <p>Aplicação MSAL não configurada corretamente.</p>
-                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px;">Fechar</button>
-            </div>
-            '''
+            return '<h2>Aplicação MSAL não configurada</h2>'
         
-        result = app_msal.acquire_token_by_authorization_code(
-            code,
-            scopes=GRAPH_SCOPES,
-            redirect_uri='http://localhost:5000/callback'
-        )
+        result = app_msal.acquire_token_by_authorization_code(code, scopes=GRAPH_SCOPES, redirect_uri='http://localhost:5000/callback')
         
         if "access_token" in result:
             conn = get_db()
-            conn.execute('''
-                UPDATE config SET 
-                access_token = ?, 
-                refresh_token = ?, 
-                expires_at = ?
-                WHERE id = 1
-            ''', (
-                result['access_token'], 
-                result.get('refresh_token'), 
-                (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()
-            ))
+            conn.execute('''UPDATE config SET access_token = ?, refresh_token = ?, expires_at = ? WHERE id = 1''',
+                        (result['access_token'], result.get('refresh_token'),
+                         (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()))
             conn.commit()
             conn.close()
             
-            print("✅ Tokens salvos com sucesso")
-            
             return '''
             <div style="text-align: center; margin: 50px; font-family: Arial; color: #2e7d32;">
-                <h2>✅ Autenticação Concluída</h2>
-                <p><strong>Sistema pronto para sincronizar com Outlook Calendar!</strong></p>
-                <p>Agora você pode:</p>
-                <ul style="text-align: left; max-width: 400px; margin: 20px auto;">
-                    <li>Aprovar dispositivos Pico 2W na aba "Sincronização de Dispositivos"</li>
-                    <li>Ver seus eventos sincronizados automaticamente</li>
-                    <li>Fechar esta janela</li>
-                </ul>
-                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; background: #2e7d32; color: white; border: none; border-radius: 5px;">Fechar</button>
+                <h2>Autenticação Concluída!</h2>
+                <p>Sistema pronto para sincronizar eventos do Outlook</p>
+                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; 
+                       background: #2e7d32; color: white; border: none; border-radius: 5px;">Fechar</button>
             </div>
             '''
         else:
-            error_desc = result.get("error_description", "Erro desconhecido na troca do token")
-            print(f"❌ Falha na troca do token: {error_desc}")
-            return f'''
-            <div style="text-align: center; margin: 50px; font-family: Arial;">
-                <h2 style="color: #d32f2f;">❌ Falha na Autenticação</h2>
-                <p>Erro na troca do token: {error_desc}</p>
-                <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px;">Fechar</button>
-            </div>
-            '''
-            
+            return f'<h2>Falha: {result.get("error_description", "Erro desconhecido")}</h2>'
     except Exception as e:
-        print(f"❌ Erro no callback: {e}")
-        return f'''
-        <div style="text-align: center; margin: 50px; font-family: Arial;">
-            <h2 style="color: #d32f2f;">❌ Erro no Callback</h2>
-            <p>Erro interno: {str(e)}</p>
-            <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px;">Fechar</button>
-        </div>
-        '''
+        return f'<h2>Erro no callback: {str(e)}</h2>'
 
 @app.route('/api/events')
 def events():
@@ -680,128 +472,79 @@ def events():
 @app.route('/api/devices')
 def devices():
     conn = get_db()
-    devices = conn.execute('''
-        SELECT registration_id, device_id, status, device_info, mac_address, 
-               first_seen, last_seen 
-        FROM devices 
-        ORDER BY first_seen DESC
-    ''').fetchall()
+    devices = conn.execute('''SELECT registration_id, device_id, status, device_info, mac_address, 
+                              first_seen, last_seen FROM devices ORDER BY first_seen DESC''').fetchall()
     conn.close()
     
-    devices_list = []
-    for device in devices:
-        devices_list.append({
-            'registration_id': device['registration_id'],
-            'device_id': device['device_id'],
-            'status': device['status'],
-            'device_info': device['device_info'],
-            'mac_address': device['mac_address'],
-            'first_seen': device['first_seen'],
-            'last_seen': device['last_seen']
-        })
-    
-    return jsonify(devices_list)
+    return jsonify([{
+        'registration_id': d['registration_id'],
+        'device_id': d['device_id'],
+        'status': d['status'],
+        'device_info': d['device_info'],
+        'mac_address': d['mac_address'],
+        'first_seen': d['first_seen'],
+        'last_seen': d['last_seen']
+    } for d in devices])
 
 @app.route('/api/devices/<registration_id>/approve', methods=['POST'])
 def approve_device_route(registration_id):
     try:
         device_id = mqtt_manager.approve_device(registration_id)
-        return jsonify({
-            'success': True, 
-            'device_id': device_id,
-            'message': f'Dispositivo {registration_id} aprovado como {device_id}'
-        })
+        return jsonify({'success': True, 'device_id': device_id})
     except Exception as e:
-        print(f"❌ Erro ao aprovar dispositivo: {e}")
-        return jsonify({
-            'success': False, 
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/sync/<device_id>', methods=['POST'])
 def sync_device_route(device_id):
     try:
         success = mqtt_manager.sync_device(device_id)
-        return jsonify({
-            'success': success,
-            'message': f'Sincronização {"bem-sucedida" if success else "falhada"} para {device_id}'
-        })
+        return jsonify({'success': success})
     except Exception as e:
-        print(f"❌ Erro na sincronização manual: {e}")
-        return jsonify({
-            'success': False, 
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/clean-devices', methods=['POST'])
+def clean_devices_route():
+    try:
+        conn = get_db()
+        count = conn.execute('SELECT COUNT(*) as count FROM devices').fetchone()['count']
+        conn.execute('DELETE FROM devices')
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': f'{count} dispositivos removidos'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== SINCRONIZAÇÃO AUTOMÁTICA ====================
 def auto_sync():
-    """Sincronização automática a cada hora"""
     while True:
-        time.sleep(3600)  # 1 hora
-        
+        time.sleep(3600)
         try:
-            print("🕐 Iniciando sincronização automática...")
-            
             conn = get_db()
-            devices = conn.execute('''
-                SELECT device_id FROM devices WHERE status = "approved"
-            ''').fetchall()
+            devices = conn.execute('SELECT device_id FROM devices WHERE status = "approved"').fetchall()
             conn.close()
             
-            if devices:
-                print(f"Sincronizando {len(devices)} dispositivos aprovados...")
-                for device in devices:
-                    mqtt_manager.sync_device(device['device_id'])
-                    time.sleep(2)  # Pausa entre sincronizações
-                print("Sincronização automática concluída")
-            else:
-                print("Nenhum dispositivo aprovado para sincronizar")
-                
+            for device in devices:
+                mqtt_manager.sync_device(device['device_id'])
+                time.sleep(2)
         except Exception as e:
-            print(f"Erro na sincronização automática: {e}")
+            print(f"❌ Erro sync automático: {e}")
 
-# Iniciar thread de sincronização automática
 threading.Thread(target=auto_sync, daemon=True).start()
 
 # ==================== INICIALIZAÇÃO ====================
 if __name__ == '__main__':
     print("=" * 60)
-    print("MAGIC MIRROR - BACKEND v2.0 CORRIGIDO")
-    print("Sistema de Sincronização com MQTT Dinâmico")
+    print("MAGIC MIRROR - BACKEND v3.0 CORRIGIDO")
     print("=" * 60)
-    print(f"MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
-    print(f"Topic Prefix: {TOPIC_PREFIX}")
-    print("=" * 60)
-    print("ROTAS DISPONÍVEIS:")
-    print("  • Web Interface: http://localhost:5000")
-    print("  • Status API: http://localhost:5000/api/status")
-    print("  • Dispositivos: http://localhost:5000/api/devices")
-    print("  • Eventos: http://localhost:5000/api/events")
-    print("=" * 60)
-    print()
-    print("INSTRUÇÕES PARA USO:")
-    print("1. Configure credenciais Azure na interface web")
-    print("2. Execute autenticação OAuth2")
-    print("3. Conecte o Pico 2W ao WiFi")
-    print("4. Aprove o dispositivo na aba 'Sincronização de Dispositivos'")
-    print("5. Eventos serão sincronizados automaticamente a cada hora")
-    print()
-    print("CORREÇÕES IMPLEMENTADAS:")
-    print("• Topic prefix dinâmico compartilhado entre backend e Pico")
-    print("• Melhor handling de registro e aprovação de dispositivos")
-    print("• Logs detalhados para debugging")
-    print("• Sincronização forçada após aprovação")
-    print("• Resposta completa com todos os dados necessários")
+    print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT}")
+    print(f"Topic: {TOPIC_PREFIX}")
     print("=" * 60)
     
     try:
         app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
     except KeyboardInterrupt:
-        print("\nSistema interrompido pelo usuário")
-    except Exception as e:
-        print(f"Erro fatal no servidor: {e}")
+        print("\nSistema interrompido")
     finally:
         if mqtt_manager.client:
             mqtt_manager.client.loop_stop()
             mqtt_manager.client.disconnect()
-        print("Sistema encerrado")
