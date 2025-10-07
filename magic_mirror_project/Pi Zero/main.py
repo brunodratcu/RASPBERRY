@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Magic Mirror - Raspberry Pico 2W - CORRIGIDO
+Magic Mirror - Raspberry Pico 2W - CORRIGIDO COM FONT.PY
 Sistema de relógio com sincronização MQTT e eventos do Outlook
-CORREÇÃO: Topic único e recebimento garantido de aprovações
+CORREÇÃO: Importação correta do módulo font.py
 """
 
 import machine
@@ -13,46 +13,90 @@ import json
 import ubinascii
 from machine import Pin, RTC
 
-# Importar módulos
+# ==================== IMPORTAR CONFIG ====================
 try:
     from config import *
+    print("✅ Config importado")
 except ImportError:
-    print("Config nao encontrado")
-
-try:
-    from font import get_char_bitmap
-    FONT_AVAILABLE = True
-    print("Font module OK")
-except ImportError:
-    FONT_AVAILABLE = False
-    print("Font module nao encontrado - usando fonte basica")
-
-# Configurações padrão
-if 'WIFI_SSID' not in globals():
+    print("⚠️  Config não encontrado - usando padrões")
     WIFI_SSID = "SuaRedeWiFi"
-if 'WIFI_PASSWORD' not in globals():
     WIFI_PASSWORD = "SuaSenha"
-if 'TIMEZONE_OFFSET' not in globals():
     TIMEZONE_OFFSET = -3
-if 'DISPLAY_WIDTH' not in globals():
     DISPLAY_WIDTH = 480
-if 'DISPLAY_HEIGHT' not in globals():
     DISPLAY_HEIGHT = 320
-if 'MQTT_BROKER' not in globals():
     MQTT_BROKER = "test.mosquitto.org"
-if 'MQTT_PORT' not in globals():
     MQTT_PORT = 1883
-if 'TOPIC_PREFIX' not in globals():
     TOPIC_PREFIX = "magic_mirror_stable"
 
-# Importar MQTT
+# ==================== IMPORTAR FONT.PY ====================
+try:
+    from font import (
+        get_char_bitmap, 
+        get_text_width, 
+        get_text_height,
+        center_text_x,
+        split_text_to_fit,
+        normalize_text,
+        has_char
+    )
+    FONT_AVAILABLE = True
+    print("✅ Font module completo importado!")
+except ImportError as e:
+    print(f"❌ ERRO: font.py não encontrado! {e}")
+    print("   → Coloque font.py na mesma pasta que main.py")
+    FONT_AVAILABLE = False
+    
+    # Fallback básico se font.py não existir
+    def get_char_bitmap(char):
+        # Fonte 8x8 mínima apenas para dígitos
+        basic = {
+            '0': [0x3C, 0x66, 0x6E, 0x7E, 0x76, 0x66, 0x3C, 0x00],
+            '1': [0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00],
+            '2': [0x3C, 0x66, 0x06, 0x1C, 0x30, 0x60, 0x7E, 0x00],
+            '3': [0x3C, 0x66, 0x06, 0x1C, 0x06, 0x66, 0x3C, 0x00],
+            '4': [0x0E, 0x1E, 0x36, 0x66, 0x7F, 0x06, 0x06, 0x00],
+            '5': [0x7E, 0x60, 0x7C, 0x06, 0x06, 0x66, 0x3C, 0x00],
+            '6': [0x1C, 0x30, 0x60, 0x7C, 0x66, 0x66, 0x3C, 0x00],
+            '7': [0x7E, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00],
+            '8': [0x3C, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x3C, 0x00],
+            '9': [0x3C, 0x66, 0x66, 0x3E, 0x06, 0x0C, 0x38, 0x00],
+            ':': [0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00],
+            '/': [0x00, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x00, 0x00],
+            ' ': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+            '?': [0x3C, 0x66, 0x06, 0x0C, 0x18, 0x00, 0x18, 0x00],
+        }
+        return basic.get(char.upper(), basic[' '])
+    
+    def get_text_width(text, scale=1):
+        return len(text) * 8 * scale
+    
+    def get_text_height(scale=1):
+        return 8 * scale
+    
+    def center_text_x(text, display_width, scale=1):
+        return (display_width - get_text_width(text, scale)) // 2
+    
+    def split_text_to_fit(text, max_width, scale=1):
+        char_width = 8 * scale
+        max_chars = max_width // char_width
+        if len(text) <= max_chars:
+            return [text]
+        return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+    
+    def normalize_text(text):
+        return text
+    
+    def has_char(char):
+        return char in '0123456789:/ ?'
+
+# ==================== IMPORTAR MQTT ====================
 try:
     from umqtt.simple import MQTTClient
     MQTT_AVAILABLE = True
-    print("✅ umqtt.simple disponível")
+    print("✅ MQTT disponível")
 except ImportError:
     MQTT_AVAILABLE = False
-    print("❌ umqtt.simple não encontrado!")
+    print("❌ MQTT não disponível!")
     class MQTTClient:
         def __init__(self, *args, **kwargs): pass
         def connect(self): raise Exception("MQTT não disponível")
@@ -62,55 +106,16 @@ except ImportError:
         def check_msg(self): pass
         def set_callback(self, callback): pass
 
-# Importar NTP
+# ==================== IMPORTAR NTP ====================
 try:
     import ntptime
     NTP_AVAILABLE = True
+    print("✅ NTP disponível")
 except ImportError:
     NTP_AVAILABLE = False
-    print("⚠️  ntptime não disponível")
+    print("⚠️  NTP não disponível")
 
-# Font 8x8 (simplificada - apenas dígitos e símbolos essenciais)
-FONT_8X8 = {
-    '0': [0x3C, 0x66, 0x6E, 0x7E, 0x76, 0x66, 0x3C, 0x00],
-    '1': [0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00],
-    '2': [0x3C, 0x66, 0x06, 0x1C, 0x30, 0x60, 0x7E, 0x00],
-    '3': [0x3C, 0x66, 0x06, 0x1C, 0x06, 0x66, 0x3C, 0x00],
-    '4': [0x0E, 0x1E, 0x36, 0x66, 0x7F, 0x06, 0x06, 0x00],
-    '5': [0x7E, 0x60, 0x7C, 0x06, 0x06, 0x66, 0x3C, 0x00],
-    '6': [0x1C, 0x30, 0x60, 0x7C, 0x66, 0x66, 0x3C, 0x00],
-    '7': [0x7E, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00],
-    '8': [0x3C, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x3C, 0x00],
-    '9': [0x3C, 0x66, 0x66, 0x3E, 0x06, 0x0C, 0x38, 0x00],
-    ':': [0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00],
-    '/': [0x00, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x00, 0x00],
-    ' ': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-    '-': [0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00],
-}
-
-# Adicionar letras básicas para mensagens
-for char, pattern in [
-    ('A', [0x18, 0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x00]),
-    ('D', [0x7C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x00]),
-    ('E', [0x7E, 0x60, 0x60, 0x7C, 0x60, 0x60, 0x7E, 0x00]),
-    ('G', [0x3C, 0x66, 0x60, 0x6E, 0x66, 0x66, 0x3C, 0x00]),
-    ('I', [0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00]),
-    ('L', [0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00]),
-    ('N', [0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00]),
-    ('O', [0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00]),
-    ('P', [0x7C, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x00]),
-    ('R', [0x7C, 0x66, 0x66, 0x7C, 0x78, 0x6C, 0x66, 0x00]),
-    ('S', [0x3E, 0x60, 0x60, 0x3E, 0x06, 0x06, 0x7C, 0x00]),
-    ('T', [0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00]),
-    ('U', [0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00]),
-    ('V', [0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00]),
-]:
-    FONT_8X8[char] = pattern
-
-def get_char_bitmap(char):
-    return FONT_8X8.get(char.upper(), FONT_8X8[' '])
-
-# Hardware - Pinos do display
+# ==================== HARDWARE - DISPLAY ====================
 rst = Pin(16, Pin.OUT, value=1)
 cs = Pin(17, Pin.OUT, value=1)
 rs = Pin(15, Pin.OUT, value=0)
@@ -120,7 +125,7 @@ data_pins = [Pin(i, Pin.OUT) for i in range(8)]
 
 rtc = RTC()
 
-# Cores RGB565
+# ==================== CORES RGB565 ====================
 BLACK = 0x0000
 WHITE = 0xFFFF
 RED = 0xF800
@@ -130,7 +135,7 @@ CYAN = 0x07FF
 YELLOW = 0xFFE0
 ORANGE = 0xFD20
 
-# ==================== DISPLAY ====================
+# ==================== FUNÇÕES DISPLAY ====================
 def write_byte(data):
     for i in range(8):
         data_pins[i].value((data >> i) & 1)
@@ -164,7 +169,7 @@ def init_display():
     cmd(0x36); dat(0xE8)
     cmd(0x29); utime.sleep_ms(50)
     
-    print("Display OK")
+    print("✅ Display inicializado")
     return True
 
 def set_area(x0, y0, x1, y1):
@@ -193,6 +198,7 @@ def clear_screen(color=BLACK):
     fill_rect(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, color)
 
 def draw_char(x, y, char, color, size=1):
+    """Desenha um caractere usando font.py"""
     bitmap = get_char_bitmap(char)
     for row in range(8):
         byte = bitmap[row]
@@ -204,21 +210,35 @@ def draw_char(x, y, char, color, size=1):
                     fill_rect(px, py, size, size, color)
 
 def draw_text(x, y, text, color, size=1):
+    """Desenha texto usando font.py"""
     char_width = 8 * size
     char_spacing = 2 * size
+    
     for i, char in enumerate(str(text)):
         char_x = x + i * (char_width + char_spacing)
         if char_x < DISPLAY_WIDTH - char_width:
             draw_char(char_x, y, char, color, size)
 
 def draw_centered(y, text, color, size=1):
-    char_width = 8 * size
-    char_spacing = 2 * size
-    text_width = len(str(text)) * char_width + (len(str(text)) - 1) * char_spacing
-    x = max(0, (DISPLAY_WIDTH - text_width) // 2)
-    draw_text(x, y, text, color, size)
+    """Desenha texto centralizado usando font.py"""
+    text_str = str(text)
+    x = center_text_x(text_str, DISPLAY_WIDTH, size)
+    draw_text(x, y, text_str, color, size)
 
-# ==================== REDE ====================
+def draw_text_multiline(x, y, text, color, size=1, max_width=None):
+    """Desenha texto com quebra de linha automática"""
+    if max_width is None:
+        max_width = DISPLAY_WIDTH - x - 10
+    
+    lines = split_text_to_fit(text, max_width, size)
+    line_height = get_text_height(size) + 2
+    
+    for i, line in enumerate(lines):
+        line_y = y + (i * line_height)
+        if line_y + get_text_height(size) < DISPLAY_HEIGHT:
+            draw_text(x, line_y, line, color, size)
+
+# ==================== DEVICE ID ====================
 def get_unique_device_id():
     try:
         wlan = network.WLAN(network.STA_IF)
@@ -229,6 +249,7 @@ def get_unique_device_id():
     except:
         return f"PICO_{utime.ticks_ms() % 100000}"
 
+# ==================== NETWORK MANAGER ====================
 class NetworkManager:
     def __init__(self):
         self.wlan = network.WLAN(network.STA_IF)
@@ -243,7 +264,7 @@ class NetworkManager:
         if self.wlan.isconnected():
             self.connected = True
             self.ip_address = self.wlan.ifconfig()[0]
-            print(f"WiFi conectado: {self.ip_address}")
+            print(f"✅ WiFi conectado: {self.ip_address}")
             return True
         
         try:
@@ -253,15 +274,15 @@ class NetworkManager:
                 if self.wlan.isconnected():
                     self.connected = True
                     self.ip_address = self.wlan.ifconfig()[0]
-                    print(f"WiFi conectado: {self.ip_address}")
+                    print(f"✅ WiFi conectado: {self.ip_address}")
                     return True
                 print(".", end="")
                 utime.sleep(1)
             
-            print(f"\nTimeout WiFi ({timeout}s)")
+            print(f"\n❌ Timeout WiFi ({timeout}s)")
             return False
         except Exception as e:
-            print(f"Erro WiFi: {e}")
+            print(f"❌ Erro WiFi: {e}")
             return False
     
     def is_connected(self):
@@ -291,15 +312,15 @@ class NetworkManager:
                 
                 self.ntp_synced = True
                 current = rtc.datetime()
-                print(f"Horario OK: {current[2]:02d}/{current[1]:02d}/{current[0]} {current[4]:02d}:{current[5]:02d}")
+                print(f"✅ Horário: {current[2]:02d}/{current[1]:02d}/{current[0]} {current[4]:02d}:{current[5]:02d}")
                 return True
             except Exception as e:
-                print(f"Falha NTP {server}: {e}")
+                print(f"⚠️  Falha NTP {server}: {e}")
                 continue
         
         return False
 
-# ==================== MQTT ====================
+# ==================== MQTT MANAGER ====================
 class MQTTManager:
     def __init__(self, device_id, topic_prefix):
         self.device_id = device_id
@@ -323,7 +344,7 @@ class MQTTManager:
             topic_str = topic.decode('utf-8')
             payload_str = msg.decode('utf-8')
             
-            print(f"\nMensagem MQTT:")
+            print(f"\n📨 MQTT:")
             print(f"  Topic: {topic_str}")
             
             if 'registration' in topic_str:
@@ -331,7 +352,7 @@ class MQTTManager:
             elif 'events' in topic_str:
                 self._handle_events(payload_str)
         except Exception as e:
-            print(f"Erro callback: {e}")
+            print(f"❌ Erro callback: {e}")
     
     def _handle_registration(self, payload):
         try:
@@ -351,20 +372,19 @@ class MQTTManager:
                 if new_prefix:
                     self.topic_prefix = new_prefix
                 
-                print(f"\nDISPOSITIVO APROVADO!")
+                print(f"\n✅ DISPOSITIVO APROVADO!")
                 print(f"  Device ID: {device_id}")
                 print(f"  Topic: {self.topic_prefix}")
                 
-                # Subscrever aos eventos
                 events_topic = f"{self.topic_prefix}/devices/{device_id}/events"
                 try:
                     self.client.subscribe(events_topic)
-                    print(f"  Inscrito: {events_topic}")
+                    print(f"  👂 Inscrito: {events_topic}")
                 except Exception as e:
-                    print(f"  Erro subscribe: {e}")
+                    print(f"  ❌ Erro subscribe: {e}")
                 
         except Exception as e:
-            print(f"Erro registro: {e}")
+            print(f"❌ Erro registro: {e}")
     
     def _handle_events(self, payload):
         try:
@@ -377,21 +397,21 @@ class MQTTManager:
             else:
                 self.events = [data]
             
-            print(f"\nEventos recebidos: {len(self.events)}")
+            print(f"\n✅ {len(self.events)} eventos recebidos")
             for i, event in enumerate(self.events[:3]):
-                title = event.get('title', 'Sem titulo')
+                title = event.get('title', 'Sem título')
                 time_str = event.get('time', '')
                 print(f"  {i+1}. {time_str} {title}")
         except Exception as e:
-            print(f"Erro eventos: {e}")
+            print(f"❌ Erro eventos: {e}")
     
     def connect(self, network_manager):
         if not MQTT_AVAILABLE:
-            print("MQTT nao disponivel")
+            print("❌ MQTT não disponível")
             return False
         
         if not network_manager.is_connected():
-            print("WiFi nao conectado")
+            print("❌ WiFi não conectado")
             return False
         
         try:
@@ -403,20 +423,18 @@ class MQTTManager:
             self.client.connect()
             self.connected = True
             
-            print(f"MQTT conectado! ID: {client_id}")
+            print(f"✅ MQTT conectado! ID: {client_id}")
             
-            # Subscrever ao topic de registro CORRETO
             registration_topic = f"{self.topic_prefix}/registration"
             self.client.subscribe(registration_topic)
-            print(f"Inscrito em: {registration_topic}")
+            print(f"👂 Inscrito: {registration_topic}")
             
-            # Enviar registro inicial
             self._send_registration()
             
             self.last_ping = utime.ticks_ms()
             return True
         except Exception as e:
-            print(f"Erro MQTT: {e}")
+            print(f"❌ Erro MQTT: {e}")
             self.connected = False
             return False
     
@@ -429,7 +447,6 @@ class MQTTManager:
             return
         
         try:
-            # Obter MAC address
             mac_address = ''
             try:
                 wlan = network.WLAN(network.STA_IF)
@@ -453,12 +470,11 @@ class MQTTManager:
             topic = f"{self.topic_prefix}/registration"
             
             self.client.publish(topic, message)
-            print(f"Registro enviado: {topic}")
-            print(f"  ID: {self.device_id}")
+            print(f"📤 Registro enviado: {topic}")
             
             self.last_registration = now
         except Exception as e:
-            print(f"Erro enviando registro: {e}")
+            print(f"❌ Erro enviando registro: {e}")
     
     def process_messages(self):
         if not self.client or not self.connected:
@@ -473,12 +489,11 @@ class MQTTManager:
                 self.last_ping = now
             
             if not self.approved and utime.ticks_diff(now, self.last_registration) > self.registration_interval:
-                print("Re-enviando registro...")
                 self._send_registration()
             
             return True
         except Exception as e:
-            print(f"Erro processando: {e}")
+            print(f"❌ Erro processando: {e}")
             self.connected = False
             return False
     
@@ -530,11 +545,11 @@ class MagicMirror:
     
     def init_system(self):
         print("=" * 50)
-        print("MAGIC MIRROR - INICIALIZACAO")
+        print("MAGIC MIRROR - INICIALIZAÇÃO")
         print("=" * 50)
         
         if not init_display():
-            print("Falha display")
+            print("❌ Falha display")
             return
         
         self.show_splash()
@@ -545,7 +560,7 @@ class MagicMirror:
             
             ntp_ok = self.network.sync_ntp_brasilia()
             if ntp_ok:
-                self.show_status("Horario sincronizado", GREEN)
+                self.show_status("Horário sincronizado", GREEN)
             else:
                 self.show_status("NTP falhou", YELLOW)
                 rtc.datetime((2024, 12, 25, 2, 15, 30, 0, 0))
@@ -565,16 +580,13 @@ class MagicMirror:
         self.setup_main_screen()
         
         gc.collect()
-        print(f"Memoria livre: {gc.mem_free()}")
-        print("Inicializacao completa!")
+        print(f"Memória livre: {gc.mem_free()}")
+        print("✅ Inicialização completa!")
     
     def show_splash(self):
         clear_screen(BLACK)
-        draw_centered(60, "MAGIC MIRROR", WHITE, 3)
-        draw_centered(100, "PICO 2W", CYAN, 2)
-        draw_centered(130, f"ID: {self.device_id}", YELLOW, 1)
-        draw_centered(150, "v3.0 - CORRIGIDO", GREEN, 1)
-        draw_centered(180, "Inicializando...", WHITE, 1)
+        draw_centered(80, "MAGIC MIRROR", WHITE, 3)
+        draw_centered(140, "Inicializando...", CYAN, 2)
     
     def show_status(self, message, color):
         fill_rect(0, 200, DISPLAY_WIDTH, 40, BLACK)
@@ -587,7 +599,7 @@ class MagicMirror:
         draw_text(300, 60, ":", WHITE, 4)
         for key in self.last_display_state:
             self.last_display_state[key] = None
-        print("Tela principal OK")
+        print("✅ Tela principal configurada")
     
     def update_single_digit(self, digit_key, new_digit):
         if self.last_display_state[digit_key] != new_digit:
@@ -645,6 +657,9 @@ class MagicMirror:
                     time_str = event.get('time', '').strip()
                     title = event.get('title', 'Evento').strip()
                     
+                    # Normalizar texto para caracteres suportados
+                    title = normalize_text(title)
+                    
                     if len(title) > 32:
                         title = title[:29] + "..."
                     
@@ -653,7 +668,7 @@ class MagicMirror:
                     else:
                         line = f"Todo dia: {title}"
                 else:
-                    line = str(event)[:40]
+                    line = normalize_text(str(event)[:40])
                 
                 events_text_lines.append(line)
         else:
@@ -678,7 +693,7 @@ class MagicMirror:
                     draw_text(x_pos, y_pos, line, color, 1)
             
             self.last_display_state['events'] = events_display_text
-            print(f"Eventos atualizados ({len(events)})")
+            print(f"✅ Eventos atualizados ({len(events)})")
     
     def update_status_display(self):
         wifi_ok = self.network.is_connected()
@@ -714,7 +729,7 @@ class MagicMirror:
             try:
                 if self.mqtt and self.mqtt.is_connected():
                     if not self.mqtt.process_messages():
-                        print("Falha MQTT")
+                        print("⚠️  Falha MQTT")
                 
                 self.update_clock_display()
                 self.update_date_display()
@@ -726,7 +741,7 @@ class MagicMirror:
                 ntp_sync_counter += 1
                 if ntp_sync_counter >= 7200:
                     if self.network.is_connected():
-                        print("Re-sincronizando NTP...")
+                        print("🔄 Re-sincronizando NTP...")
                         self.network.sync_ntp_brasilia()
                     ntp_sync_counter = 0
                 
@@ -737,49 +752,67 @@ class MagicMirror:
                     
                     if loop_count % 240 == 0:
                         free_mem = gc.mem_free()
-                        print(f"Memoria: {free_mem} | Eventos: {len(self.mqtt.get_events()) if self.mqtt else 0}")
+                        events_count = len(self.mqtt.get_events()) if self.mqtt else 0
+                        print(f"💾 Memória: {free_mem} | Eventos: {events_count}")
                 
                 loop_count += 1
                 utime.sleep_ms(500)
                 
             except KeyboardInterrupt:
-                print("\nInterrompido")
+                print("\n⚠️  Interrompido pelo usuário")
                 break
             except Exception as e:
-                print(f"Erro loop: {e}")
+                print(f"❌ Erro loop: {e}")
                 utime.sleep(2)
         
         if self.mqtt:
             self.mqtt.disconnect()
-        print("Sistema finalizado")
+        print("✅ Sistema finalizado")
 
 # ==================== MAIN ====================
 def main():
     print("=" * 60)
-    print("MAGIC MIRROR - PICO 2W v3.0 CORRIGIDO")
+    print("MAGIC MIRROR - PICO 2W v3.0")
+    print("COM SUPORTE COMPLETO A FONT.PY")
     print("=" * 60)
     print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT}")
     print(f"Topic: {TOPIC_PREFIX}")
-    print(f"Timezone: UTC{TIMEZONE_OFFSET}")
+    print(f"Timezone: UTC{TIMEZONE_OFFSET:+d}")
+    print(f"Font.py: {'✅ DISPONÍVEL' if FONT_AVAILABLE else '⚠️  BÁSICO'}")
     print("=" * 60)
     
     try:
         if WIFI_SSID == "SuaRedeWiFi":
-            print("ATENCAO: Configure WiFi no config.py")
+            print("❌ ERRO: Configure WiFi no config.py")
+            clear_screen(BLACK)
+            draw_centered(80, "CONFIGURE WIFI", RED, 2)
+            draw_centered(120, "Edite config.py", WHITE, 1)
+            while True:
+                utime.sleep(10)
         
         if not MQTT_AVAILABLE:
-            print("ERRO: umqtt.simple nao encontrado!")
-            return
+            print("❌ ERRO: umqtt.simple não encontrado!")
+            clear_screen(BLACK)
+            draw_centered(80, "MQTT NAO DISPONIVEL", RED, 2)
+            draw_centered(120, "Instale umqtt.simple", WHITE, 1)
+            while True:
+                utime.sleep(10)
+        
+        if not FONT_AVAILABLE:
+            print("⚠️  AVISO: font.py não encontrado!")
+            print("   → Usando fonte básica (apenas dígitos)")
+            print("   → Coloque font.py na pasta para suporte completo")
         
         mirror = MagicMirror()
         mirror.run_main_loop()
         
     except Exception as e:
-        print(f"ERRO FATAL: {e}")
+        print(f"❌ ERRO FATAL: {e}")
         try:
             clear_screen(BLACK)
             draw_centered(80, "ERRO FATAL", RED, 3)
             draw_centered(120, "Verifique console", WHITE, 1)
+            draw_centered(150, str(e)[:40], YELLOW, 1)
             while True:
                 utime.sleep(10)
         except:
