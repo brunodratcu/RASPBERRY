@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Magic Mirror - Backend CORRIGIDO
-Sistema completo para sincronização de eventos do Outlook
-CORREÇÃO: Topic único e sincronização garantida
+CORREÇÃO: ConfidentialClientApplication para usar Client Secret
 """
 
 import sqlite3
@@ -31,20 +30,29 @@ app.config.update(
 
 CORS(app, supports_credentials=True)
 
-# Configurações MQTT - TOPIC ÚNICO FIXO
+# Configurações MQTT
 MQTT_BROKER = "test.mosquitto.org"
 MQTT_PORT = 1883
-TOPIC_PREFIX = "magic_mirror_stable"  # ÚNICO E FIXO
+TOPIC_PREFIX = "magic_mirror_stable"
 
 GRAPH_ENDPOINT = 'https://graph.microsoft.com/v1.0/'
-GRAPH_SCOPES = ['https://graph.microsoft.com/Calendars.Read']
+
+# MUDANÇA: Usar Application permissions em vez de Delegated
+# Application não precisa de login do usuário para calendários compartilhados
+GRAPH_SCOPES = ['https://graph.microsoft.com/.default']
+
+# IMPORTANTE: URL de redirect
+REDIRECT_URI = "http://localhost:5000/callback"
 
 print(f"🔧 TOPIC PREFIX: {TOPIC_PREFIX}")
+print(f"🔧 REDIRECT URI: {REDIRECT_URI}")
 
 # ==================== BANCO DE DADOS ====================
 def init_db():
     conn = sqlite3.connect('mirror.db')
     cursor = conn.cursor()
+    
+    # Criar tabela config
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS config (
             id INTEGER PRIMARY KEY,
@@ -52,11 +60,22 @@ def init_db():
             client_id TEXT,
             tenant_id TEXT,
             client_secret TEXT,
+            user_email TEXT,
             access_token TEXT,
             refresh_token TEXT,
             expires_at TEXT
         )
     ''')
+    
+    # Verificar se user_email existe, se não, adicionar
+    cursor.execute("PRAGMA table_info(config)")
+    columns = [column[1] for column in cursor.fetchall()]
+    
+    if 'user_email' not in columns:
+        print("🔧 Adicionando coluna user_email...")
+        cursor.execute('ALTER TABLE config ADD COLUMN user_email TEXT')
+        conn.commit()
+    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS devices (
             registration_id TEXT PRIMARY KEY,
@@ -82,57 +101,115 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-# ==================== MICROSOFT OUTLOOK ====================
+# ==================== MICROSOFT OUTLOOK - CORRIGIDO ====================
 def get_msal_app():
+    """CORRIGIDO: Usa ConfidentialClientApplication com client_secret"""
     conn = get_db()
     config = conn.execute('SELECT * FROM config WHERE id = 1').fetchone()
     conn.close()
-    if not config or not config['client_id']:
+    
+    if not config or not config['client_id'] or not config['client_secret']:
+        print("⚠️  Credenciais Azure não configuradas")
         return None
     
-    return msal.PublicClientApplication(
-        config['client_id'],
-        authority=f"https://login.microsoftonline.com/{config['tenant_id']}"
-    )
+    try:
+        # CORREÇÃO: Usar ConfidentialClientApplication
+        authority = f"https://login.microsoftonline.com/{config['tenant_id']}"
+        
+        app_msal = msal.ConfidentialClientApplication(
+            config['client_id'],
+            authority=authority,
+            client_credential=config['client_secret']  # ISSO É ESSENCIAL!
+        )
+        
+        print(f"✅ MSAL App criado (Confidential)")
+        return app_msal
+    except Exception as e:
+        print(f"❌ Erro criando MSAL app: {e}")
+        return None
 
 def get_valid_token():
+    """Obtém token válido usando CLIENT CREDENTIALS (sem usuário)"""
     conn = get_db()
     config = conn.execute('SELECT * FROM config WHERE id = 1').fetchone()
-    if not config or not config['access_token']:
+    
+    if not config or not config['client_id'] or not config['client_secret']:
+        conn.close()
+        print("❌ Credenciais Azure não configuradas")
+        return None
+    
+    # NOVA ABORDAGEM: Client Credentials Flow
+    # Não precisa de login do usuário, usa as credenciais da aplicação
+    app = get_msal_app()
+    if not app:
         conn.close()
         return None
     
-    if config['expires_at']:
-        expires = datetime.fromisoformat(config['expires_at'])
-        if datetime.now() >= expires - timedelta(minutes=5):
-            if config['refresh_token']:
-                app = get_msal_app()
-                if app:
-                    result = app.acquire_token_by_refresh_token(config['refresh_token'], scopes=GRAPH_SCOPES)
-                    if "access_token" in result:
-                        conn.execute('''UPDATE config SET access_token = ?, expires_at = ? WHERE id = 1''', 
-                                   (result['access_token'], (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()))
-                        conn.commit()
-                        conn.close()
-                        return result['access_token']
+    try:
+        print("🔐 Obtendo token com client credentials...")
+        
+        # Client credentials flow - usa apenas client_id e client_secret
+        result = app.acquire_token_for_client(scopes=GRAPH_SCOPES)
+        
+        if result and "access_token" in result:
+            token = result['access_token']
+            expires_in = result.get('expires_in', 3600)
+            expires_at = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+            
+            # Salvar no banco
+            conn.execute('''UPDATE config SET 
+                          access_token = ?, 
+                          expires_at = ? 
+                          WHERE id = 1''', 
+                       (token, expires_at))
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ Token obtido! Expira em {expires_in//60} minutos")
+            return token
+        else:
+            error = result.get('error_description') if result else 'Sem resposta'
+            print(f"❌ Erro ao obter token: {error}")
             conn.close()
             return None
-    
-    token = config['access_token']
-    conn.close()
-    return token
+            
+    except Exception as e:
+        print(f"❌ Exceção: {e}")
+        import traceback
+        traceback.print_exc()
+        conn.close()
+        return None
 
 def get_today_events():
+    """Busca eventos usando Application permissions"""
     token = get_valid_token()
     if not token:
         print("⚠️  Token não disponível")
+        return []
+    
+    # Pegar o email do usuário configurado
+    conn = get_db()
+    config = conn.execute('SELECT * FROM config WHERE id = 1').fetchone()
+    
+    # CORREÇÃO: Row não tem .get(), usar índice ou dict
+    try:
+        user_email = config['user_email'] if config and config['user_email'] else None
+    except (KeyError, TypeError):
+        user_email = None
+    
+    conn.close()
+    
+    if not user_email:
+        print("❌ Email do usuário não configurado!")
+        print("   → Configure via API: POST /api/config com campo 'userEmail'")
         return []
     
     today = datetime.now().date()
     start_time = datetime.combine(today, datetime.min.time()).isoformat() + 'Z'
     end_time = datetime.combine(today, datetime.max.time()).isoformat() + 'Z'
     
-    url = f"{GRAPH_ENDPOINT}me/events"
+    # MUDANÇA: Usar /users/{email}/events em vez de /me/events
+    url = f"{GRAPH_ENDPOINT}users/{user_email}/events"
     params = {
         '$filter': f"start/dateTime ge '{start_time}' and start/dateTime le '{end_time}'",
         '$select': 'subject,start,end,location,isAllDay',
@@ -141,7 +218,13 @@ def get_today_events():
     }
     
     try:
-        response = requests.get(url, headers={'Authorization': f'Bearer {token}'}, params=params, timeout=10)
+        response = requests.get(
+            url, 
+            headers={'Authorization': f'Bearer {token}'}, 
+            params=params, 
+            timeout=10
+        )
+        
         if response.status_code == 200:
             events = []
             for event in response.json().get('value', []):
@@ -151,15 +234,16 @@ def get_today_events():
                     'time': start_dt.strftime('%H:%M') if not event.get('isAllDay') else '',
                     'isAllDay': event.get('isAllDay', False)
                 })
-            print(f"✅ {len(events)} eventos obtidos do Outlook")
+            print(f"✅ {len(events)} eventos obtidos para {user_email}")
             return events
         else:
             print(f"❌ Erro Graph API: {response.status_code}")
-            if response.status_code == 401:
-                print("   → Token expirado - reautentique no navegador")
+            print(f"   Resposta: {response.text[:300]}")
             return []
     except Exception as e:
         print(f"❌ Erro ao buscar eventos: {e}")
+        import traceback
+        traceback.print_exc()
     
     return []
 
@@ -185,11 +269,8 @@ class MQTTManager:
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.connected = True
-            
-            # Subscrever APENAS ao topic correto
             registration_topic = f"{self.topic_prefix}/registration"
             client.subscribe(registration_topic)
-            
             print(f"✅ MQTT conectado")
             print(f"👂 Escutando: {registration_topic}")
         else:
@@ -204,16 +285,13 @@ class MQTTManager:
             topic_str = msg.topic
             payload = json.loads(msg.payload.decode())
             
-            # Processar apenas registration requests
             if 'registration' in topic_str:
                 reg_id = payload.get('registration_id')
                 status = payload.get('status', '')
                 
-                # Ignorar echos das próprias aprovações
                 if status == 'approved' and 'device_id' in payload:
                     return
                 
-                # Processar solicitações do Pico
                 if reg_id and status == 'requesting_approval':
                     print(f"\n📨 NOVA SOLICITAÇÃO: {reg_id}")
                     self.handle_registration(payload)
@@ -222,7 +300,6 @@ class MQTTManager:
             print(f"❌ Erro MQTT: {e}")
     
     def handle_registration(self, payload):
-        """Auto-aprovar dispositivo e enviar confirmação"""
         reg_id = payload.get('registration_id')
         device_info = payload.get('device_info', 'Dispositivo desconhecido')
         mac_address = payload.get('mac_address', '')
@@ -236,14 +313,11 @@ class MQTTManager:
             device = conn.execute('SELECT * FROM devices WHERE registration_id = ?', (reg_id,)).fetchone()
             
             if device and device['status'] == 'approved' and device['device_id']:
-                # Dispositivo já aprovado - reenviar aprovação
                 device_id = device['device_id']
                 print(f"✓ Re-aprovando: {reg_id} → {device_id}")
-                
                 conn.execute('UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE registration_id = ?', (reg_id,))
                 conn.commit()
             else:
-                # Novo dispositivo ou pendente - aprovar
                 device_id = f"mirror_{secrets.token_urlsafe(6)}"
                 
                 if device:
@@ -258,7 +332,6 @@ class MQTTManager:
                 conn.commit()
                 print(f"✅ APROVADO: {reg_id} → {device_id}")
             
-            # Enviar aprovação
             response = {
                 'registration_id': reg_id,
                 'status': 'approved',
@@ -271,7 +344,6 @@ class MQTTManager:
             self.client.publish(approval_topic, json.dumps(response))
             print(f"📤 Aprovação enviada em: {approval_topic}")
             
-            # Sincronizar eventos após 2 segundos
             threading.Thread(target=lambda: time.sleep(2) or self.sync_device(device_id), daemon=True).start()
             
         except Exception as e:
@@ -280,7 +352,6 @@ class MQTTManager:
             conn.close()
     
     def sync_device(self, device_id):
-        """Sincronizar eventos com dispositivo"""
         if not self.connected:
             return False
         
@@ -315,7 +386,6 @@ class MQTTManager:
             return False
     
     def approve_device(self, registration_id):
-        """Aprovar dispositivo manualmente"""
         device_id = f"mirror_{secrets.token_urlsafe(6)}"
         
         conn = get_db()
@@ -366,12 +436,21 @@ def save_config():
     if not all(k in config for k in ['clientId', 'tenantId', 'clientSecret']):
         return jsonify({'error': 'Campos obrigatórios ausentes'}), 400
     
+    user_email = config.get('userEmail', '')
+    
     conn = get_db()
-    conn.execute('''UPDATE config SET client_id = ?, tenant_id = ?, client_secret = ? WHERE id = 1''',
-                (config['clientId'], config['tenantId'], config['clientSecret']))
+    conn.execute('''UPDATE config SET 
+                    client_id = ?, 
+                    tenant_id = ?, 
+                    client_secret = ?,
+                    user_email = ?
+                    WHERE id = 1''',
+                (config['clientId'], config['tenantId'], config['clientSecret'], user_email))
     conn.commit()
     conn.close()
     
+    print("✅ Configuração Azure salva")
+    print(f"   User Email: {user_email}")
     return jsonify({'success': True})
 
 @app.route('/api/config', methods=['GET'])
@@ -381,14 +460,26 @@ def get_config():
     conn.close()
     
     if config:
+        # CORREÇÃO: Acessar como dict
+        try:
+            user_email = config['user_email'] if config['user_email'] else ''
+        except (KeyError, TypeError):
+            user_email = ''
+            
         return jsonify({
             'topic_prefix': config['topic_prefix'] or TOPIC_PREFIX,
             'client_id': config['client_id'],
             'tenant_id': config['tenant_id'],
+            'user_email': user_email,
             'has_credentials': bool(config['client_id'] and config['tenant_id'] and config['client_secret']),
             'has_token': bool(config['access_token'])
         })
-    return jsonify({'topic_prefix': TOPIC_PREFIX, 'has_credentials': False, 'has_token': False})
+    return jsonify({
+        'topic_prefix': TOPIC_PREFIX, 
+        'has_credentials': False, 
+        'has_token': False,
+        'user_email': ''
+    })
 
 @app.route('/api/status')
 def status():
@@ -416,48 +507,120 @@ def auth():
     try:
         app_msal = get_msal_app()
         if not app_msal:
-            return '<h2>Configure suas credenciais Azure primeiro</h2>', 400
+            return '<h2>❌ Configure suas credenciais Azure primeiro</h2>', 400
         
-        auth_url = app_msal.get_authorization_request_url(GRAPH_SCOPES, redirect_uri='http://localhost:5000/callback')
+        # SOLUÇÃO ALTERNATIVA: Forçar consentimento por usuário
+        # Adiciona prompt=consent para pedir permissões toda vez
+        print(f"🔐 Iniciando autenticação...")
+        print(f"   Scopes: {GRAPH_SCOPES}")
+        
+        auth_url = app_msal.get_authorization_request_url(
+            GRAPH_SCOPES,
+            redirect_uri=REDIRECT_URI,
+            prompt='consent'  # FORÇA o usuário a aceitar as permissões!
+        )
+        
         return redirect(auth_url)
     except Exception as e:
-        return f'<h2>Erro: {str(e)}</h2>', 500
+        print(f"❌ Erro na autenticação: {e}")
+        import traceback
+        traceback.print_exc()
+        return f'<h2>❌ Erro: {str(e)}</h2>', 500
 
 @app.route('/callback')
 def callback():
     try:
         code = request.args.get('code')
         error = request.args.get('error')
+        error_description = request.args.get('error_description')
         
-        if error or not code:
-            return f'<h2>Erro: {error or "Código ausente"}</h2>'
+        if error:
+            print(f"❌ Erro no callback: {error}")
+            print(f"   Descrição: {error_description}")
+            return f'<h2>❌ Erro: {error}</h2><p>{error_description}</p>'
+        
+        if not code:
+            return '<h2>❌ Código de autorização ausente</h2>'
         
         app_msal = get_msal_app()
         if not app_msal:
-            return '<h2>Aplicação MSAL não configurada</h2>'
+            return '<h2>❌ Aplicação MSAL não configurada</h2>'
         
-        result = app_msal.acquire_token_by_authorization_code(code, scopes=GRAPH_SCOPES, redirect_uri='http://localhost:5000/callback')
+        print("🔐 Trocando código por token...")
+        
+        result = app_msal.acquire_token_by_authorization_code(
+            code, 
+            scopes=GRAPH_SCOPES,
+            redirect_uri=REDIRECT_URI
+        )
         
         if "access_token" in result:
+            expires_in = result.get('expires_in', 3600)
+            expires_at = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+            refresh_token = result.get('refresh_token')
+            
+            print(f"✅ Access token recebido")
+            print(f"✅ Refresh token: {'SIM' if refresh_token else 'NÃO'}")
+            print(f"   Expira em: {expires_in} segundos (~{expires_in//60} minutos)")
+            
             conn = get_db()
-            conn.execute('''UPDATE config SET access_token = ?, refresh_token = ?, expires_at = ? WHERE id = 1''',
-                        (result['access_token'], result.get('refresh_token'),
-                         (datetime.now() + timedelta(seconds=result.get('expires_in', 3600))).isoformat()))
+            conn.execute('''UPDATE config SET 
+                          access_token = ?, 
+                          refresh_token = ?, 
+                          expires_at = ? 
+                          WHERE id = 1''',
+                        (result['access_token'], 
+                         refresh_token,
+                         expires_at))
             conn.commit()
             conn.close()
             
+            # Testar IMEDIATAMENTE se o token funciona
+            print("\n🧪 TESTANDO TOKEN AGORA...")
+            test_response = requests.get(
+                f"{GRAPH_ENDPOINT}me",
+                headers={'Authorization': f'Bearer {result["access_token"]}'},
+                timeout=10
+            )
+            
+            if test_response.status_code == 200:
+                user_data = test_response.json()
+                print(f"✅ TOKEN FUNCIONA!")
+                print(f"   Usuário: {user_data.get('displayName', 'N/A')}")
+                print(f"   Email: {user_data.get('mail', user_data.get('userPrincipalName', 'N/A'))}")
+                
+                # Testar eventos
+                print("\n🧪 TESTANDO EVENTOS AGORA...")
+                events = get_today_events()
+                print(f"✅ {len(events)} eventos obtidos!")
+                if events:
+                    for i, ev in enumerate(events[:3]):
+                        print(f"   {i+1}. {ev.get('time', '')} {ev.get('title', '')}")
+            else:
+                print(f"❌ TOKEN NÃO FUNCIONA! HTTP {test_response.status_code}")
+                print(f"   Resposta: {test_response.text[:200]}")
+            
             return '''
-            <div style="text-align: center; margin: 50px; font-family: Arial; color: #2e7d32;">
-                <h2>Autenticação Concluída!</h2>
-                <p>Sistema pronto para sincronizar eventos do Outlook</p>
+            <div style="text-align: center; margin: 50px; font-family: Arial;">
+                <h2 style="color: #2e7d32;">✅ Autenticação Concluída!</h2>
+                <p style="font-size: 18px; font-weight: bold;">Token obtido e testado com sucesso!</p>
+                <p style="color: #666;">Verifique o console do servidor para detalhes</p>
                 <button onclick="window.close()" style="padding: 10px 20px; margin-top: 20px; 
-                       background: #2e7d32; color: white; border: none; border-radius: 5px;">Fechar</button>
+                       background: #2e7d32; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                    Fechar Janela
+                </button>
             </div>
             '''
         else:
-            return f'<h2>Falha: {result.get("error_description", "Erro desconhecido")}</h2>'
+            error_msg = result.get('error_description', result.get('error', 'Erro desconhecido'))
+            print(f"❌ Falha na autenticação: {error_msg}")
+            return f'<h2>❌ Falha: {error_msg}</h2>'
+            
     except Exception as e:
-        return f'<h2>Erro no callback: {str(e)}</h2>'
+        print(f"❌ Erro no callback: {e}")
+        import traceback
+        traceback.print_exc()
+        return f'<h2>❌ Erro no callback: {str(e)}</h2>'
 
 @app.route('/api/events')
 def events():
@@ -468,6 +631,63 @@ def events():
         'date': datetime.now().strftime('%Y-%m-%d'),
         'timestamp': datetime.now().isoformat()
     })
+
+@app.route('/api/test-token')
+def test_token():
+    """Rota para testar se o token está funcionando"""
+    conn = get_db()
+    config = conn.execute('SELECT expires_at, refresh_token FROM config WHERE id = 1').fetchone()
+    conn.close()
+    
+    token = get_valid_token()
+    
+    if not token:
+        return jsonify({
+            'status': 'error',
+            'message': 'Token não disponível - faça autenticação',
+            'has_refresh_token': bool(config and config['refresh_token'])
+        }), 401
+    
+    # Testar o token fazendo uma requisição real
+    try:
+        response = requests.get(
+            f"{GRAPH_ENDPOINT}me",
+            headers={'Authorization': f'Bearer {token}'},
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            user_data = response.json()
+            expires_info = "Token válido"
+            if config and config['expires_at']:
+                try:
+                    expires = datetime.fromisoformat(config['expires_at'])
+                    minutes_left = (expires - datetime.now()).total_seconds() / 60
+                    expires_info = f"Expira em {int(minutes_left)} minutos"
+                except:
+                    pass
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Token válido!',
+                'user': user_data.get('displayName', 'N/A'),
+                'email': user_data.get('mail', user_data.get('userPrincipalName', 'N/A')),
+                'expires': expires_info,
+                'has_refresh_token': bool(config and config['refresh_token'])
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'Token inválido (HTTP {response.status_code})',
+                'has_refresh_token': bool(config and config['refresh_token'])
+            }), 401
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Erro ao testar: {str(e)}',
+            'has_refresh_token': bool(config and config['refresh_token'])
+        }), 500
 
 @app.route('/api/devices')
 def devices():
@@ -538,6 +758,7 @@ if __name__ == '__main__':
     print("=" * 60)
     print(f"MQTT: {MQTT_BROKER}:{MQTT_PORT}")
     print(f"Topic: {TOPIC_PREFIX}")
+    print(f"Redirect URI: {REDIRECT_URI}")
     print("=" * 60)
     
     try:
