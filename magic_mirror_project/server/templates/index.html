@@ -3,23 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SPACE MIRROR - Configuração do Passe de Embarque</title>
+    <title>SPACE MIRROR - Embarque para o Futuro</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;500;600&display=swap');
-
-        :root {
-            --primary-glow: #00ffff;
-            --secondary-glow: #ff00ff;
-            --accent-glow: #ffff00;
-            --success-glow: #00ff00;
-            --error-glow: #ff0040;
-            --bg-space: #000011;
-            --bg-panel: rgba(0, 30, 60, 0.3);
-            --border-glow: rgba(0, 255, 255, 0.3);
-            --text-primary: #ffffff;
-            --text-secondary: #b0e0ff;
-            --text-accent: #00ffff;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap');
 
         * {
             margin: 0;
@@ -29,128 +15,161 @@
 
         body {
             font-family: 'Exo 2', sans-serif;
-            background: var(--bg-space);
-            color: var(--text-primary);
-            min-height: 100vh;
+            background: #000;
+            color: #fff;
             overflow-x: hidden;
             position: relative;
         }
 
-        /* Fundo espacial animado */
-        body::before {
-            content: '';
+        .starfield {
             position: fixed;
             top: 0;
             left: 0;
-            width: 200vw;
-            height: 200vh;
-            background: 
-                radial-gradient(2px 2px at 100px 50px, #fff, transparent),
-                radial-gradient(2px 2px at 200px 150px, #fff, transparent),
-                radial-gradient(1px 1px at 300px 100px, #fff, transparent),
-                radial-gradient(1px 1px at 400px 200px, #fff, transparent),
-                radial-gradient(2px 2px at 500px 75px, #fff, transparent),
-                radial-gradient(1px 1px at 600px 175px, #fff, transparent),
-                linear-gradient(135deg, #000011 0%, #001122 50%, #000033 100%);
-            animation: starfield 200s linear infinite;
-            z-index: -2;
-        }
-
-        @keyframes starfield {
-            0% { transform: translate(0, 0) rotate(0deg); }
-            100% { transform: translate(-100px, -100px) rotate(360deg); }
-        }
-
-        /* Partículas flutuantes */
-        .particle {
-            position: fixed;
-            width: 3px;
-            height: 3px;
-            background: var(--primary-glow);
-            border-radius: 50%;
-            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            overflow: hidden;
             z-index: -1;
-            animation: float 15s infinite linear;
         }
 
-        @keyframes float {
-            0% { transform: translateY(100vh) translateX(0px) rotate(0deg); opacity: 0; }
-            10% { opacity: 1; }
-            90% { opacity: 1; }
-            100% { transform: translateY(-100vh) translateX(100px) rotate(360deg); opacity: 0; }
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: #fff;
+            border-radius: 50%;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        .grid-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(0deg, transparent 24%, rgba(0, 255, 255, 0.05) 25%, rgba(0, 255, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 255, 0.05) 75%, rgba(0, 255, 255, 0.05) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, rgba(0, 255, 255, 0.05) 25%, rgba(0, 255, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 255, 0.05) 75%, rgba(0, 255, 255, 0.05) 76%, transparent 77%, transparent);
+            background-size: 50px 50px;
+            z-index: -1;
+            opacity: 0.3;
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 40px 20px;
             position: relative;
             z-index: 1;
         }
 
-        /* Cabeçalho com tema espacial */
         .header {
             text-align: center;
-            margin-bottom: 50px;
+            margin-bottom: 60px;
             position: relative;
         }
 
-        .header h1 {
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #00ffff, transparent);
+            animation: scan 3s infinite;
+        }
+
+        @keyframes scan {
+            0%, 100% { opacity: 0; width: 0; }
+            50% { opacity: 1; width: 400px; }
+        }
+
+        h1 {
             font-family: 'Orbitron', monospace;
-            font-size: 4em;
+            font-size: 5em;
             font-weight: 900;
-            background: linear-gradient(45deg, var(--primary-glow), var(--secondary-glow), var(--accent-glow));
+            background: linear-gradient(45deg, #00ffff, #ff00ff, #ffff00, #00ffff);
+            background-size: 300% 300%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            text-shadow: 0 0 30px var(--primary-glow);
-            animation: pulse-glow 3s ease-in-out infinite alternate;
-            margin-bottom: 20px;
+            animation: gradient-shift 5s ease infinite;
+            text-shadow: 0 0 80px rgba(0, 255, 255, 0.5);
+            letter-spacing: 8px;
         }
 
-        .header .subtitle {
-            font-size: 1.4em;
-            color: var(--text-secondary);
-            font-weight: 300;
-            letter-spacing: 2px;
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .subtitle {
+            font-size: 1.5em;
+            color: #00ffff;
             text-transform: uppercase;
+            letter-spacing: 4px;
+            margin-top: 20px;
+            opacity: 0;
+            animation: fadeInUp 1s 0.5s forwards;
         }
 
-        .header .mission-code {
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .mission-badge {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 30px;
+            border: 2px solid #00ffff;
+            border-radius: 30px;
             font-family: 'Orbitron', monospace;
-            color: var(--primary-glow);
-            font-size: 1em;
-            margin-top: 10px;
-            opacity: 0.8;
+            color: #00ffff;
+            font-size: 0.9em;
+            letter-spacing: 2px;
+            animation: pulse-border 2s infinite;
         }
 
-        @keyframes pulse-glow {
-            0% { filter: drop-shadow(0 0 20px var(--primary-glow)); }
-            100% { filter: drop-shadow(0 0 40px var(--secondary-glow)); }
+        @keyframes pulse-border {
+            0%, 100% { box-shadow: 0 0 10px #00ffff, inset 0 0 10px #00ffff; }
+            50% { box-shadow: 0 0 30px #00ffff, inset 0 0 20px #00ffff; }
         }
 
-        /* Abas de navegação - futuristas */
         .nav-tabs {
             display: flex;
             justify-content: center;
-            margin-bottom: 40px;
-            gap: 10px;
+            gap: 20px;
+            margin-bottom: 50px;
+            flex-wrap: wrap;
         }
 
         .nav-tab {
-            background: var(--bg-panel);
-            border: 2px solid var(--border-glow);
-            padding: 15px 30px;
-            font-family: 'Orbitron', monospace;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            border-radius: 0;
-            transition: all 0.3s ease;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
             position: relative;
+            padding: 18px 40px;
+            background: rgba(0, 20, 40, 0.6);
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            color: #00ffff;
+            cursor: pointer;
+            font-family: 'Orbitron', monospace;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            transition: all 0.4s;
+            clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
             overflow: hidden;
         }
 
@@ -161,8 +180,8 @@
             left: -100%;
             width: 100%;
             height: 100%;
-            background: linear-gradient(90deg, transparent, var(--primary-glow), transparent);
-            transition: left 0.5s;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.4), transparent);
+            transition: left 0.6s;
         }
 
         .nav-tab:hover::before {
@@ -170,1211 +189,1164 @@
         }
 
         .nav-tab.active {
+            background: rgba(0, 255, 255, 0.15);
+            border-color: #00ffff;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.5), inset 0 0 30px rgba(0, 255, 255, 0.2);
+            transform: translateY(-5px);
+        }
+
+        .nav-tab:hover {
             background: rgba(0, 255, 255, 0.1);
-            color: var(--primary-glow);
-            box-shadow: 
-                0 0 20px var(--primary-glow),
-                inset 0 0 20px rgba(0, 255, 255, 0.1);
-            border-color: var(--primary-glow);
+            border-color: #00ffff;
+            transform: translateY(-3px);
         }
 
-        .nav-tab:hover:not(.active) {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-primary);
-            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
-        }
-
-        /* Conteúdo das abas */
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-            animation: fadeInUp 0.5s ease-out;
-        }
-
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Cards com efeito holográfico */
-        .space-card {
-            background: var(--bg-panel);
-            border: 2px solid var(--border-glow);
-            border-radius: 15px;
+        .boarding-card {
+            background: linear-gradient(135deg, rgba(0, 20, 40, 0.8), rgba(0, 40, 80, 0.6));
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 20px;
             padding: 40px;
             margin-bottom: 30px;
             position: relative;
             overflow: hidden;
             backdrop-filter: blur(10px);
-            box-shadow: 
-                0 8px 32px rgba(0, 0, 0, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.5);
+            transition: all 0.4s;
         }
 
-        .space-card::before {
+        .boarding-card::before {
             content: '';
             position: absolute;
-            top: -2px;
-            left: -2px;
-            right: -2px;
-            bottom: -2px;
-            background: linear-gradient(45deg, var(--primary-glow), var(--secondary-glow), var(--primary-glow));
-            border-radius: 15px;
-            z-index: -1;
-            animation: border-glow 3s ease-in-out infinite alternate;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(0, 255, 255, 0.1) 0%, transparent 70%);
+            animation: rotate-gradient 10s linear infinite;
         }
 
-        @keyframes border-glow {
-            0% { opacity: 0.5; }
-            100% { opacity: 1; }
+        @keyframes rotate-gradient {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
-        .space-card h3 {
+        .boarding-card:hover {
+            border-color: #00ffff;
+            box-shadow: 0 20px 60px rgba(0, 255, 255, 0.3);
+            transform: translateY(-5px);
+        }
+
+        .card-title {
             font-family: 'Orbitron', monospace;
-            color: var(--primary-glow);
-            font-size: 1.8em;
-            margin-bottom: 20px;
+            font-size: 2em;
+            color: #00ffff;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            margin-bottom: 30px;
             text-align: center;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+        }
+
+        .card-title::after {
+            content: '';
+            display: block;
+            width: 100px;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #00ffff, transparent);
+            margin: 15px auto 0;
+        }
+
+        .form-group {
+            margin-bottom: 30px;
+            position: relative;
+            z-index: 1;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 12px;
+            font-family: 'Orbitron', monospace;
+            font-weight: 600;
+            color: #00ffff;
             text-transform: uppercase;
             letter-spacing: 2px;
+            font-size: 0.9em;
         }
 
-        /* Elementos de formulário com estilo cyber */
-        .form-group {
-            margin-bottom: 25px;
-            position: relative;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 10px;
-            font-family: 'Orbitron', monospace;
-            font-weight: 600;
-            color: var(--text-accent);
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
+        input {
             width: 100%;
-            padding: 15px 20px;
-            border: 2px solid var(--border-glow);
-            border-radius: 8px;
-            font-size: 16px;
-            font-family: 'Exo 2', sans-serif;
+            padding: 16px 20px;
             background: rgba(0, 20, 40, 0.5);
-            color: var(--text-primary);
-            transition: all 0.3s ease;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 15px;
+            font-family: 'Exo 2', sans-serif;
+            transition: all 0.3s;
         }
 
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
+        input:focus {
             outline: none;
-            border-color: var(--primary-glow);
-            box-shadow: 
-                0 0 20px rgba(0, 255, 255, 0.3),
-                inset 0 0 20px rgba(0, 255, 255, 0.1);
-            background: rgba(0, 30, 60, 0.7);
+            border-color: #00ffff;
+            background: rgba(0, 40, 80, 0.7);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3), inset 0 0 20px rgba(0, 255, 255, 0.1);
         }
 
-        .form-group input::placeholder,
-        .form-group textarea::placeholder {
-            color: var(--text-secondary);
-            opacity: 0.7;
+        input::placeholder {
+            color: rgba(0, 255, 255, 0.5);
         }
 
-        /* Botões futuristas */
-        .btn {
-            background: linear-gradient(45deg, var(--primary-glow), var(--secondary-glow));
-            color: var(--bg-space);
-            border: none;
-            padding: 15px 30px;
-            border-radius: 8px;
-            font-family: 'Orbitron', monospace;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            text-decoration: none;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        .launch-btn {
             position: relative;
+            padding: 16px 40px;
+            background: linear-gradient(135deg, #00ffff, #0099ff);
+            border: none;
+            border-radius: 10px;
+            color: #000;
+            font-family: 'Orbitron', monospace;
+            font-weight: 700;
+            font-size: 1em;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
             overflow: hidden;
+            transition: all 0.3s;
+            box-shadow: 0 5px 20px rgba(0, 255, 255, 0.4);
         }
 
-        .btn::before {
+        .launch-btn::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
-            transition: left 0.5s;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
         }
 
-        .btn:hover::before {
-            left: 100%;
+        .launch-btn:hover::before {
+            width: 300px;
+            height: 300px;
         }
 
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 
-                0 10px 25px rgba(0, 255, 255, 0.3),
-                0 0 30px var(--primary-glow);
+        .launch-btn:hover {
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 10px 40px rgba(0, 255, 255, 0.6);
+        }
+
+        .launch-btn:disabled {
+            background: rgba(100, 100, 100, 0.3);
+            color: rgba(255, 255, 255, 0.3);
+            cursor: not-allowed;
+            box-shadow: none;
         }
 
         .btn-secondary {
-            background: linear-gradient(45deg, #333, #666);
-            color: var(--text-primary);
-        }
-
-        .btn-success {
-            background: linear-gradient(45deg, var(--success-glow), #00cc88);
+            background: linear-gradient(135deg, #ff00ff, #ff0099);
         }
 
         .btn-outline {
             background: transparent;
-            color: var(--primary-glow);
-            border: 2px solid var(--primary-glow);
+            border: 2px solid #00ffff;
+            color: #00ffff;
         }
 
         .btn-outline:hover {
-            background: var(--primary-glow);
-            color: var(--bg-space);
+            background: rgba(0, 255, 255, 0.1);
         }
 
-        .btn-small {
-            padding: 8px 16px;
-            font-size: 12px;
-            min-width: 100px;
+        .status-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            position: relative;
+            z-index: 1;
         }
 
-        /* Estilos de gerenciamento de dispositivos */
-        .device-card {
-            background: var(--bg-panel);
-            border: 2px solid var(--border-glow);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 15px;
-            transition: all 0.3s ease;
+        .status-module {
+            background: rgba(0, 20, 40, 0.6);
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 15px;
+            padding: 25px;
             position: relative;
             overflow: hidden;
         }
 
-        .device-card:hover {
-            border-color: var(--primary-glow);
-            box-shadow: 0 5px 20px rgba(0, 255, 255, 0.2);
+        .status-module::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #00ffff, transparent);
+            animation: loading-bar 2s infinite;
         }
 
-        .device-card.approved {
-            border-color: var(--success-glow);
+        @keyframes loading-bar {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
         }
 
-        .device-card.pending {
-            border-color: var(--accent-glow);
-        }
-
-        .device-status {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 5px 15px;
-            border-radius: 20px;
+        .status-module h3 {
             font-family: 'Orbitron', monospace;
-            font-size: 12px;
+            color: #00ffff;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.1em;
+        }
+
+        .led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            position: relative;
+        }
+
+        .led.online {
+            background: #00ff00;
+            box-shadow: 0 0 15px #00ff00, inset 0 0 10px #00ff00;
+            animation: pulse-green 2s infinite;
+        }
+
+        .led.offline {
+            background: #ff0000;
+            box-shadow: 0 0 15px #ff0000;
+        }
+
+        @keyframes pulse-green {
+            0%, 100% { box-shadow: 0 0 15px #00ff00, inset 0 0 10px #00ff00; }
+            50% { box-shadow: 0 0 30px #00ff00, inset 0 0 15px #00ff00; }
+        }
+
+        .device-card {
+            background: rgba(0, 30, 60, 0.5);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 15px;
+            padding: 25px;
+            margin: 15px 0;
+            position: relative;
+            transition: all 0.3s;
+        }
+
+        .device-card:hover {
+            border-color: #00ffff;
+            box-shadow: 0 5px 25px rgba(0, 255, 255, 0.3);
+            transform: translateX(10px);
+        }
+
+        .device-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .device-id {
+            font-family: 'Orbitron', monospace;
+            color: #00ffff;
+            font-size: 1.2em;
+            font-weight: 700;
+        }
+
+        .badge {
+            padding: 6px 16px;
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #00ff00;
+            border-radius: 20px;
+            color: #00ff00;
+            font-size: 0.85em;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
-        .device-status.approved {
-            background: rgba(0, 255, 0, 0.1);
-            color: var(--success-glow);
-            border: 1px solid var(--success-glow);
-        }
-
-        .device-status.pending {
-            background: rgba(255, 255, 0, 0.1);
-            color: var(--accent-glow);
-            border: 1px solid var(--accent-glow);
-        }
-
-        .device-info {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 20px;
-            align-items: center;
-        }
-
-        .device-details h4 {
-            color: var(--primary-glow);
-            font-family: 'Orbitron', monospace;
-            margin-bottom: 8px;
-            font-size: 1.1em;
-        }
-
-        .device-details .registration-id {
-            color: var(--text-secondary);
-            font-size: 0.9em;
-            font-family: 'Courier New', monospace;
-            margin-bottom: 10px;
-        }
-
-        /* Passos do tutorial */
-        .tutorial-container {
-            display: grid;
-            gap: 25px;
+        .tutorial-steps {
+            counter-reset: step;
+            position: relative;
+            z-index: 1;
         }
 
         .tutorial-step {
-            background: rgba(0, 40, 80, 0.3);
-            border: 1px solid var(--border-glow);
+            background: rgba(0, 30, 60, 0.5);
+            border-left: 4px solid #00ffff;
             border-radius: 10px;
-            padding: 25px;
+            padding: 30px;
+            margin: 25px 0;
             position: relative;
-            transition: all 0.3s ease;
-        }
-
-        .tutorial-step:hover {
-            border-color: var(--primary-glow);
-            box-shadow: 0 5px 20px rgba(0, 255, 255, 0.2);
+            counter-increment: step;
         }
 
         .tutorial-step::before {
-            content: counter(step-counter);
-            counter-increment: step-counter;
+            content: counter(step);
             position: absolute;
             top: -15px;
             left: 20px;
-            background: linear-gradient(45deg, var(--primary-glow), var(--secondary-glow));
-            color: var(--bg-space);
-            width: 30px;
-            height: 30px;
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #00ffff, #0099ff);
+            color: #000;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: 'Orbitron', monospace;
-            font-weight: 700;
-            font-size: 14px;
-        }
-
-        .tutorial-steps {
-            counter-reset: step-counter;
-        }
-
-        .step-title {
-            font-family: 'Orbitron', monospace;
-            color: var(--primary-glow);
+            font-weight: 900;
             font-size: 1.2em;
-            margin-bottom: 15px;
-            text-transform: uppercase;
+            box-shadow: 0 5px 20px rgba(0, 255, 255, 0.5);
         }
 
-        .step-description {
-            color: var(--text-secondary);
-            line-height: 1.6;
-            margin-bottom: 15px;
-        }
-
-        .step-code {
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid var(--border-glow);
-            border-radius: 5px;
-            padding: 15px;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            color: var(--success-glow);
-            margin: 10px 0;
-            white-space: pre-wrap;
-        }
-
-        /* Estilo do modal */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 2000;
-            backdrop-filter: blur(10px);
-        }
-
-        .modal.show {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        .modal-content {
-            background: var(--bg-panel);
-            border: 2px solid var(--primary-glow);
-            border-radius: 15px;
-            padding: 40px;
-            max-width: 800px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
-            position: relative;
-            box-shadow: 0 20px 60px rgba(0, 255, 255, 0.3);
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-
-        .modal-title {
+        .tutorial-step h3 {
+            color: #00ffff;
             font-family: 'Orbitron', monospace;
-            font-size: 1.8em;
-            color: var(--primary-glow);
+            margin-bottom: 15px;
             text-transform: uppercase;
         }
 
-        .close-btn {
-            background: none;
-            border: none;
-            font-size: 30px;
-            cursor: pointer;
-            color: var(--text-secondary);
-            transition: color 0.3s ease;
+        .code-terminal {
+            background: #000;
+            border: 1px solid #00ffff;
+            border-radius: 8px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            color: #00ff00;
+            margin: 15px 0;
+            overflow-x: auto;
+            white-space: pre-line;
         }
 
-        .close-btn:hover {
-            color: var(--primary-glow);
-        }
-
-        /* Sistema de notificações */
-        .notification {
+        .toast {
             position: fixed;
             top: 30px;
             right: 30px;
             padding: 20px 30px;
+            background: rgba(0, 30, 60, 0.95);
+            border: 2px solid #00ffff;
             border-radius: 10px;
-            color: var(--text-primary);
+            color: #fff;
             font-family: 'Orbitron', monospace;
-            font-weight: 600;
-            z-index: 3000;
+            box-shadow: 0 10px 40px rgba(0, 255, 255, 0.5);
             transform: translateX(400px);
-            transition: transform 0.5s ease;
-            max-width: 400px;
-            border: 2px solid;
+            transition: transform 0.5s;
+            z-index: 9999;
         }
 
-        .notification.show {
+        .toast.show {
             transform: translateX(0);
         }
 
-        .notification.success {
-            background: rgba(0, 255, 0, 0.1);
-            border-color: var(--success-glow);
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        .toast.success {
+            border-color: #00ff00;
+            box-shadow: 0 10px 40px rgba(0, 255, 0, 0.5);
         }
 
-        .notification.error {
-            background: rgba(255, 0, 64, 0.1);
-            border-color: var(--error-glow);
-            box-shadow: 0 0 20px rgba(255, 0, 64, 0.3);
+        .toast.error {
+            border-color: #ff0000;
+            box-shadow: 0 10px 40px rgba(255, 0, 0, 0.5);
         }
 
-        .notification.info {
-            background: rgba(0, 255, 255, 0.1);
-            border-color: var(--primary-glow);
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0, 255, 255, 0.3);
+            border-top-color: #00ffff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
 
-        /* Design responsivo */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .tab-content {
+            display: none;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2.5em;
+            h1 {
+                font-size: 3em;
             }
             
             .nav-tabs {
                 flex-direction: column;
-                gap: 5px;
             }
-
-            .space-card {
-                padding: 25px;
+            
+            .nav-tab {
+                width: 100%;
             }
-
-            .container {
-                padding: 15px;
-            }
-        }
-
-        /* Barra de rolagem personalizada */
-        ::-webkit-scrollbar {
-            width: 12px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: var(--bg-space);
-            border: 1px solid var(--border-glow);
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: linear-gradient(45deg, var(--primary-glow), var(--secondary-glow));
-            border-radius: 6px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(45deg, var(--secondary-glow), var(--primary-glow));
         }
     </style>
 </head>
 <body>
-    <!-- Partículas flutuantes para atmosfera -->
-    <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
-    <div class="particle" style="left: 20%; animation-delay: 2s;"></div>
-    <div class="particle" style="left: 30%; animation-delay: 4s;"></div>
-    <div class="particle" style="left: 40%; animation-delay: 6s;"></div>
-    <div class="particle" style="left: 50%; animation-delay: 8s;"></div>
-    <div class="particle" style="left: 60%; animation-delay: 10s;"></div>
-    <div class="particle" style="left: 70%; animation-delay: 12s;"></div>
-    <div class="particle" style="left: 80%; animation-delay: 14s;"></div>
-
+    <div class="starfield" id="starfield"></div>
+    <div class="grid-bg"></div>
+    
     <div class="container">
-        <!-- Cabeçalho -->
         <div class="header">
             <h1>SPACE MIRROR</h1>
-            <div class="subtitle">Sistema de Configuração do Passe de Embarque</div>
-            <div class="mission-code">CÓDIGO DA MISSÃO: SM-2025-AZURE</div>
+            <div class="subtitle">Sistema de Sincronização Quântica</div>
+            <div class="mission-badge">MISSÃO: SM-2025-FUTURE</div>
         </div>
-
-        <!-- Abas de Navegação -->
+        
         <div class="nav-tabs">
-            <button class="nav-tab active" onclick="switchTab('boarding')">
-                CONFIGURAÇÃO DO PASSE
-            </button>
-            <button class="nav-tab" onclick="switchTab('devices')">
-                SINCRONIZAÇÃO DE DISPOSITIVOS
-            </button>
-            <button class="nav-tab" onclick="switchTab('credentials')">
-                CREDENCIAIS AZURE
-            </button>
+            <div class="nav-tab active" onclick="switchTab('boarding')">
+                🚀 EMBARQUE
+            </div>
+            <div class="nav-tab" onclick="switchTab('command')">
+                🎛️ COMANDO
+            </div>
+            <div class="nav-tab" onclick="switchTab('manual')">
+                📡 MANUAL
+            </div>
         </div>
-
-        <!-- Aba de Configuração do Passe de Embarque -->
+        
+        <!-- ABA EMBARQUE -->
         <div id="boarding" class="tab-content active">
-            <div class="space-card">
-                <h3>MÓDULO DE AUTENTICAÇÃO AZURE AD</h3>
-                <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
-                    Inicialize suas credenciais pessoais de embarque para a jornada Space Mirror
+            <div class="boarding-card">
+                <h2 class="card-title">🎫 Passe de Embarque Digital</h2>
+                <p style="text-align: center; color: #00ffff; margin-bottom: 30px;">
+                    Prepare-se para sincronizar com o futuro. Insira suas credenciais de acesso dimensional.
                 </p>
                 
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px;">
                     <div class="form-group">
-                        <label for="clientId">ID DO CLIENTE (IDENTIFICADOR DA APLICAÇÃO)</label>
-                        <input type="text" id="clientId" placeholder="12345678-1234-1234-1234-123456789012">
+                        <label>🔑 CLIENT ID</label>
+                        <input type="text" id="clientId" placeholder="Application (client) ID">
                     </div>
                     <div class="form-group">
-                        <label for="tenantId">ID DO LOCATÁRIO (IDENTIFICADOR DO DIRETÓRIO)</label>
-                        <input type="text" id="tenantId" placeholder="87654321-4321-4321-4321-210987654321">
+                        <label>🌐 TENANT ID <span style="color: #888; font-size: 0.8em;">(Deixe vazio)</span></label>
+                        <input type="text" id="tenantId" placeholder="Não necessário para contas pessoais">
                     </div>
                     <div class="form-group">
-                        <label for="clientSecret">SEGREDO DO CLIENTE (CHAVE DE AUTORIZAÇÃO)</label>
-                        <input type="password" id="clientSecret" placeholder="Digite sua chave secreta de autorização">
+                        <label>🔐 CLIENT SECRET <span style="color: #888; font-size: 0.8em;">(Deixe vazio)</span></label>
+                        <input type="password" id="clientSecret" placeholder="Não necessário para contas pessoais">
+                    </div>
+                    <div class="form-group">
+                        <label>📧 SEU EMAIL <span style="color: #888; font-size: 0.8em;">(Deixe vazio)</span></label>
+                        <input type="email" id="userEmail" placeholder="Não necessário para contas pessoais">
                     </div>
                 </div>
-
+                
                 <div style="display: flex; gap: 20px; justify-content: center; margin-top: 30px; flex-wrap: wrap;">
-                    <button class="btn" onclick="testConnection()">
-                        EXECUTAR VERIFICAÇÃO DO SISTEMA
+                    <button class="launch-btn" onclick="saveConfig()">
+                        💾 INICIALIZAR PASSE
                     </button>
-                    <button class="btn btn-success" onclick="saveConfiguration()">
-                        INICIALIZAR PASSE DE EMBARQUE
+                    <button class="launch-btn btn-secondary" id="loginBtn" onclick="login()" disabled>
+                        🔐 AUTORIZAR EMBARQUE
                     </button>
-                </div>
-            </div>
-
-            <!-- Status da Missão -->
-            <div class="space-card">
-                <h3>STATUS DA MISSÃO</h3>
-                <div id="systemStatus" style="text-align: center; padding: 20px;">
-                    <div style="color: var(--text-secondary);">Inicializando sistemas...</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Aba de Sincronização de Dispositivos -->
-        <div id="devices" class="tab-content">
-            <div class="space-card">
-                <h3>SINCRONIZAÇÃO DE DISPOSITIVOS MQTT</h3>
-                <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
-                    Monitore e gerencie dispositivos Pico 2W conectados para sincronização de calendário
-                </p>
-
-                <div style="display: flex; gap: 20px; justify-content: center; margin-bottom: 30px; flex-wrap: wrap;">
-                    <button class="btn" onclick="scanForDevices()">
-                        PROCURAR DISPOSITIVOS
-                    </button>
-                    <button class="btn btn-outline" onclick="refreshDeviceList()">
-                        ATUALIZAR LISTA
+                    <button class="launch-btn btn-outline" id="logoutBtn" onclick="logout()" style="display:none">
+                        ⏏️ CANCELAR MISSÃO
                     </button>
                 </div>
-
-                <div id="deviceScanStatus" style="text-align: center; margin-bottom: 20px; color: var(--text-secondary);">
-                    Clique em "PROCURAR DISPOSITIVOS" para buscar dispositivos Pico 2W
-                </div>
-
-                <div id="deviceList">
-                    <!-- Dispositivos serão populados aqui -->
-                </div>
-            </div>
-
-            <!-- Guia de Conexão -->
-            <div class="space-card">
-                <h3>PROTOCOLO DE CONEXÃO PICO 2W</h3>
-                <div class="tutorial-steps">
-                    <div class="tutorial-step">
-                        <div class="step-title">CONFIGURAR APLICAÇÃO</div>
-                        <div class="step-description">
-                            Configure sua aplicação com estes parâmetros:
-                        </div>
-                        <div class="step-code">Nome: Space Mirror - [Seu Nome]
-Tipos de conta: Contas em qualquer diretório organizacional e contas pessoais da Microsoft
-URI de Redirecionamento: http://localhost:5000/callback</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">EXTRAIR IDENTIFICADORES</div>
-                        <div class="step-description">
-                            Na página de Visão Geral, copie estes valores críticos:
-                        </div>
-                        <div class="step-code">• ID da Aplicação (cliente) → ID DO CLIENTE
-• ID do Diretório (locatário) → ID DO LOCATÁRIO</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">GERAR CHAVE SECRETA</div>
-                        <div class="step-description">
-                            Navegue para "Certificados e segredos" → "Segredos do cliente" → "Novo segredo do cliente"
-                        </div>
-                        <div class="step-code">Copie o VALOR SECRETO imediatamente - ele só aparece uma vez!</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">CONFIGURAR PERMISSÕES</div>
-                        <div class="step-description">
-                            Vá para "Permissões da API" → "Adicionar uma permissão" → "Microsoft Graph" → "Permissões delegadas"
-                        </div>
-                        <div class="step-code">Permissões necessárias:
-• Calendars.Read
-• User.Read
-
-Em seguida, clique em "Conceder consentimento do administrador"</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal do Guia de Credenciais -->
-    <div id="credentialsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">EXTRAÇÃO DE CREDENCIAIS AZURE</h3>
-                <button class="close-btn" onclick="closeCredentialsGuide()">&times;</button>
+                
+                <div id="authMsg" style="margin-top: 20px;"></div>
             </div>
             
-            <div class="tutorial-steps">
-                <div class="tutorial-step">
-                    <div class="step-title">ACESSO AO PORTAL</div>
-                    <div class="step-description">
-                        Abra seu navegador web e navegue até o Portal Azure. Faça login com suas credenciais da conta Microsoft.
+            <div class="boarding-card">
+                <h2 class="card-title">📊 Painel de Controle da Nave</h2>
+                <div class="status-panel" id="statusPanel">
+                    <div class="status-module">
+                        <h3>SISTEMA CENTRAL</h3>
+                        <div class="status-indicator">
+                            <div class="led online"></div>
+                            <span>Verificando...</span>
+                        </div>
                     </div>
-                    <div class="step-code">URL: https://portal.azure.com</div>
-                </div>
-
-                <div class="tutorial-step">
-                    <div class="step-title">NAVEGAÇÃO NO DIRETÓRIO</div>
-                    <div class="step-description">
-                        Na barra de pesquisa no topo, digite "entra id" e selecione "Microsoft Entra ID" dos resultados.
-                    </div>
-                </div>
-
-                <div class="tutorial-step">
-                    <div class="step-title">REGISTRO DE APLICAÇÃO</div>
-                    <div class="step-description">
-                        Na barra lateral esquerda, localize e clique em "Registros de aplicativo".
-                    </div>
-                </div>
-
-                <div class="tutorial-step">
-                    <div class="step-title">NOVO REGISTRO</div>
-                    <div class="step-description">
-                        Clique no botão "Novo registro" para criar uma nova aplicação.
-                    </div>
-                </div>
-
-                <div class="tutorial-step">
-                    <div class="step-title">CONFIGURAÇÃO DA APLICAÇÃO</div>
-                    <div class="step-description">
-                        Preencha o formulário de registro com estes valores exatos:
-                    </div>
-                    <div class="step-code">Nome: Space Mirror - [Seu Nome]
-
-Tipos de conta com suporte: 
-"Contas em qualquer diretório organizacional e contas pessoais da Microsoft"
-
-URI de Redirecionamento (opcional): 
-Plataforma: Web
-URL: http://localhost:5000/callback</div>
-                </div>
-
-                <div class="tutorial-step">
-                    <div class="step-title">EXTRAÇÃO DE CREDENCIAIS</div>
-                    <div class="step-description">
-                        Após criar o aplicativo, você estará na página de Visão Geral. Copie estes dois valores:
-                    </div>
-                    <div class="step-code">• ID da Aplicação (cliente) → Este é seu ID DO CLIENTE
-• ID do Diretório (locatário) → Este é seu ID DO LOCATÁRIO</div>
-                </div>
-
-                <div class="tutorial-step">
-                    <div class="step-title">GERAÇÃO DE SEGREDO</div>
-                    <div class="step-description">
-                        Na barra lateral esquerda, clique em "Certificados e segredos", depois clique em "Novo segredo do cliente".
-                        Adicione uma descrição e defina a expiração, depois clique em "Adicionar".
-                    </div>
-                    <div class="step-code">⚠️ CRÍTICO: Copie o campo "Valor" imediatamente!
-Este segredo nunca será mostrado novamente.</div>
-                </div>
-
-                <div class="tutorial-step">
-                    <div class="step-title">CONFIGURAÇÃO DE PERMISSÕES</div>
-                    <div class="step-description">
-                        Clique em "Permissões da API" na barra lateral esquerda, depois "Adicionar uma permissão".
-                        Selecione "Microsoft Graph" → "Permissões delegadas".
-                    </div>
-                    <div class="step-code">Adicione estas permissões:
-• Calendars.Read
-• User.Read
-
-Depois clique em "Conceder consentimento do administrador para [Diretório]"</div>
                 </div>
             </div>
+        </div>
+        
+        <!-- ABA COMANDO -->
+        <div id="command" class="tab-content">
+            <div class="boarding-card">
+                <h2 class="card-title">🛸 Central de Dispositivos Conectados</h2>
+                <p style="text-align: center; color: #00ffff; margin-bottom: 30px;">
+                    Gerencie todos os dispositivos sincronizados na rede quântica
+                </p>
+                
+                <div style="display: flex; gap: 15px; justify-content: center; margin-bottom: 30px; flex-wrap: wrap;">
+                    <button class="launch-btn" onclick="refreshDevices()">
+                        🔄 ESCANEAR REDE
+                    </button>
+                    <button class="launch-btn btn-secondary" onclick="syncAll()">
+                        📡 SINCRONIZAR TUDO
+                    </button>
+                    <button class="launch-btn btn-outline" onclick="testEvents()">
+                        🧪 TESTAR TRANSMISSÃO
+                    </button>
+                </div>
+                
+                <div id="deviceList"></div>
+            </div>
+        </div>
+        
+        <!-- ABA MANUAL -->
+        <div id="manual" class="tab-content">
+            <div class="boarding-card">
+                <h2 class="card-title">📚 Manual de Operações Espaciais</h2>
+                <p style="text-align: center; color: #00ffff; margin-bottom: 30px; font-size: 1.1em;">
+                    Protocolos de configuração para acesso ao Portal Azure - CONTAS PESSOAIS
+                </p>
+                
+                <div class="tutorial-steps">
+                    <div class="tutorial-step">
+                        <h3>🌐 ACESSO AO PORTAL DIMENSIONAL</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Navegue até o portal de controle da Microsoft Azure.
+                        </p>
+                        <div class="code-terminal">URL: https://portal.azure.com
+Login: Qualquer conta Microsoft válida</div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>🔍 LOCALIZAÇÃO DO CENTRO DE CONTROLE</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Utilize o sistema de busca integrado para localizar o módulo de identidade.
+                        </p>
+                        <div class="code-terminal">Buscar: "Microsoft Entra ID"
+Selecionar: Microsoft Entra ID (Azure Active Directory)</div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>➕ REGISTRO DE NOVA NAVE</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Inicie o processo de registro de uma nova aplicação espacial.
+                        </p>
+                        <div class="code-terminal">1. Clique em "App registrations" (menu lateral)
+2. Clique em "+ New registration"
+3. Preencha o formulário abaixo</div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>⚙️ CONFIGURAÇÃO DA NAVE</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Configure os parâmetros essenciais da sua aplicação. <strong style="color: #ffff00;">ATENÇÃO: Esta configuração é CRÍTICA!</strong>
+                        </p>
+                        <div class="code-terminal">Nome: Space Mirror - [Seu Nome]
 
-            <div style="text-align: center; margin-top: 30px;">
-                <button class="btn btn-success" onclick="closeCredentialsGuide()">
-                    MISSÃO COMPREENDIDA
-                </button>
+Supported account types (⚠️ MUITO IMPORTANTE!):
+✅ Selecione a TERCEIRA opção:
+   "Accounts in any organizational directory 
+    (Any Azure AD directory - Multitenant) 
+    and personal Microsoft accounts 
+    (e.g. Skype, Xbox)"
+
+❌ NÃO selecione "Single tenant"
+❌ NÃO selecione apenas "Multitenant"
+
+Redirect URI:
+Platform: Web
+URL: http://localhost:5000/callback</div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>📋 EXTRAÇÃO DE COORDENADAS</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Após criar o app, copie o Application (client) ID.
+                        </p>
+                        <div class="code-terminal">Na página "Overview" do seu app:
+
+Application (client) ID → COPIE ESTE VALOR
+
+Exemplo: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+⚠️ NÃO precisa do Tenant ID!
+⚠️ NÃO precisa de Client Secret!
+⚠️ NÃO precisa preencher Email!</div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>⚡ PERMISSÕES DE API - PASSO CRÍTICO</h3>
+                        <p style="color: #ccc; line-height: 1.8; margin-bottom: 20px;">
+                            Configure as permissões EXATAS necessárias para o funcionamento completo do sistema.
+                            <strong style="color: #ffff00;">Todas as 5 permissões são OBRIGATÓRIAS!</strong>
+                        </p>
+                        
+                        <div style="background: rgba(255, 255, 0, 0.1); border: 2px solid #ffff00; border-radius: 10px; padding: 20px; margin: 20px 0;">
+                            <div style="color: #ffff00; font-weight: bold; font-size: 1.1em; margin-bottom: 15px;">
+                                📋 PASSO A PASSO DETALHADO:
+                            </div>
+                            <div style="color: #fff; line-height: 2;">
+                                1️⃣ Clique em <strong>"API permissions"</strong> (menu lateral esquerdo)<br>
+                                2️⃣ Clique em <strong>"+ Add a permission"</strong><br>
+                                3️⃣ Selecione <strong>"Microsoft Graph"</strong><br>
+                                4️⃣ Selecione <strong>"Delegated permissions"</strong> (NÃO Application)<br>
+                                5️⃣ Marque TODAS as 5 permissões abaixo ⬇️
+                            </div>
+                        </div>
+                        
+                        <div style="background: rgba(0, 255, 255, 0.1); border: 2px solid #00ffff; border-radius: 10px; padding: 25px; margin: 20px 0;">
+                            <div style="color: #00ffff; font-weight: bold; font-size: 1.2em; margin-bottom: 20px; text-align: center;">
+                                ✅ MARQUE ESTAS 5 PERMISSÕES:
+                            </div>
+                            
+                            <div style="display: grid; gap: 15px;">
+                                <div style="background: rgba(0, 0, 0, 0.5); border-left: 4px solid #00ff00; padding: 15px; border-radius: 5px;">
+                                    <div style="color: #00ff00; font-weight: bold; font-size: 1.1em;">✅ openid</div>
+                                    <div style="color: #ccc; margin-top: 8px; font-size: 0.95em;">
+                                        <strong>Categoria:</strong> OpenId<br>
+                                        <strong>Função:</strong> Identificação básica do usuário durante login OAuth<br>
+                                        <strong>Obrigatória:</strong> SIM - Para autenticação funcionar
+                                    </div>
+                                </div>
+                                
+                                <div style="background: rgba(0, 0, 0, 0.5); border-left: 4px solid #00ff00; padding: 15px; border-radius: 5px;">
+                                    <div style="color: #00ff00; font-weight: bold; font-size: 1.1em;">✅ profile</div>
+                                    <div style="color: #ccc; margin-top: 8px; font-size: 0.95em;">
+                                        <strong>Categoria:</strong> OpenId<br>
+                                        <strong>Função:</strong> Obter nome completo e foto do perfil<br>
+                                        <strong>Obrigatória:</strong> SIM - Para mostrar "Comandante: [Nome]"
+                                    </div>
+                                </div>
+                                
+                                <div style="background: rgba(0, 0, 0, 0.5); border-left: 4px solid #00ff00; padding: 15px; border-radius: 5px;">
+                                    <div style="color: #00ff00; font-weight: bold; font-size: 1.1em;">✅ email</div>
+                                    <div style="color: #ccc; margin-top: 8px; font-size: 0.95em;">
+                                        <strong>Categoria:</strong> OpenId<br>
+                                        <strong>Função:</strong> Obter endereço de email do usuário<br>
+                                        <strong>Obrigatória:</strong> SIM - Para identificação única
+                                    </div>
+                                </div>
+                                
+                                <div style="background: rgba(0, 0, 0, 0.5); border-left: 4px solid #ff00ff; padding: 15px; border-radius: 5px;">
+                                    <div style="color: #ff00ff; font-weight: bold; font-size: 1.1em;">✅ offline_access</div>
+                                    <div style="color: #ccc; margin-top: 8px; font-size: 0.95em;">
+                                        <strong>Categoria:</strong> OpenId<br>
+                                        <strong>Função:</strong> Gera refresh token para renovação automática<br>
+                                        <strong>Obrigatória:</strong> SIM - Evita fazer login toda hora
+                                    </div>
+                                </div>
+                                
+                                <div style="background: rgba(0, 0, 0, 0.5); border-left: 4px solid #ffff00; padding: 15px; border-radius: 5px;">
+                                    <div style="color: #ffff00; font-weight: bold; font-size: 1.1em;">✅ Calendars.Read</div>
+                                    <div style="color: #ccc; margin-top: 8px; font-size: 0.95em;">
+                                        <strong>Categoria:</strong> Calendars (precisa buscar manualmente)<br>
+                                        <strong>Função:</strong> Ler eventos do calendário do Outlook<br>
+                                        <strong>Obrigatória:</strong> SIM - É o objetivo principal do sistema!
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="code-terminal" style="margin-top: 20px;">🔍 COMO ENCONTRAR CADA PERMISSÃO NO AZURE:
+
+1. API permissions → + Add a permission
+2. Microsoft Graph → Delegated permissions
+3. Use a BUSCA para encontrar cada uma:
+
+   Na caixa "Select permissions", digite:
+   
+   📌 "openid" → Marque ✅
+   📌 "profile" → Marque ✅  
+   📌 "email" → Marque ✅
+   📌 "offline" → Aparece "offline_access" → Marque ✅
+   📌 "calendars" → Aparece "Calendars.Read" → Marque ✅
+
+4. Clique em "Add permissions" (botão azul no final)
+
+5. ⚠️ IMPORTANTE: NÃO clique em "Grant admin consent"
+   (não é necessário para contas pessoais!)
+
+✅ Resultado esperado:
+   Você verá as 5 permissões listadas com status "Not granted"
+   Isso é NORMAL para contas pessoais!
+   O consent será dado quando o usuário fizer login.</div>
+                        
+                        <div style="background: rgba(255, 0, 0, 0.1); border: 2px solid #ff0000; border-radius: 10px; padding: 20px; margin: 20px 0;">
+                            <div style="color: #ff0000; font-weight: bold; font-size: 1.1em; margin-bottom: 10px;">
+                                ⚠️ ERROS COMUNS:
+                            </div>
+                            <div style="color: #ccc; line-height: 1.8;">
+                                ❌ Selecionar "Application permissions" em vez de "Delegated"<br>
+                                ❌ Esquecer de marcar "offline_access" (sem ela, token expira rápido)<br>
+                                ❌ Não buscar "Calendars.Read" corretamente<br>
+                                ❌ Tentar clicar em "Grant admin consent" (ignora esse botão!)
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>🚀 LANÇAMENTO DA MISSÃO</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Agora volte para a aba EMBARQUE e inicie sua jornada!
+                        </p>
+                        <div class="code-terminal">🔵 PARA CONTAS PESSOAIS:
+═══════════════════════════════════════════
+1. Cole APENAS o CLIENT ID no campo
+2. DEIXE os outros campos VAZIOS:
+   - Tenant ID: vazio
+   - Client Secret: vazio
+   - Email: vazio
+   
+3. Clique em "INICIALIZAR PASSE"
+4. Clique em "AUTORIZAR EMBARQUE"
+5. Faça login com sua conta pessoal:
+   - btdratcu@hotmail.com
+   - Ou qualquer @outlook.com
+   - Ou @hotmail.com
+   - Ou @live.com
+   
+6. Aceite as 5 permissões quando solicitado
+7. Aguarde sincronização automática
+
+✅ Pronto! Sistema funcionando!</div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>🔍 VERIFICAÇÃO DO SISTEMA</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Como saber se tudo está funcionando corretamente.
+                        </p>
+                        <div class="code-terminal">✅ SINAIS DE SUCESSO:
+
+1. Painel de Controle mostra:
+   • SISTEMA CENTRAL: Operacional (LED verde)
+   • CONEXÃO QUÂNTICA: Sincronizado (LED verde)
+   • AUTORIZAÇÃO: [Seu Nome] (LED verde)
+   • DISPOSITIVOS: X ativos
+   
+2. Mensagem aparece:
+   "✅ EMBARQUE AUTORIZADO"
+   "Comandante: [Seu Nome]"
+   
+3. Botão "TESTAR TRANSMISSÃO" funciona:
+   - Mostra eventos do seu calendário
+   - Se não tiver eventos, aparece "Nenhum evento"
+
+═══════════════════════════════════════════
+
+❌ PROBLEMAS COMUNS E SOLUÇÕES:
+
+"Admin approval required":
+→ Certifique-se de selecionar a TERCEIRA opção
+  em "Supported account types"
+→ Deve ser: Multitenant + Personal accounts
+
+"Invalid redirect URI":
+→ Verifique: http://localhost:5000/callback
+→ Tipo: Web (não SPA, não Mobile)
+→ Sem espaços, sem https (use http)
+
+"Token acquisition failed":
+→ Verifique se marcou todas as 5 permissões
+→ openid, profile, email, offline_access, Calendars.Read
+→ Todas devem estar em "Delegated permissions"
+
+Nenhum evento aparece:
+→ Adicione eventos no calendário Outlook para HOJE
+→ Espere alguns minutos para sincronizar
+→ Clique em "SINCRONIZAR TUDO" manualmente
+→ Verifique se fez login com a conta certa
+
+Botão "AUTORIZAR EMBARQUE" desabilitado:
+→ Clique em "INICIALIZAR PASSE" primeiro
+→ Certifique-se que copiou o Client ID correto</div>
+                    </div>
+                    
+                    <div class="tutorial-step">
+                        <h3>💡 DICAS EXTRAS</h3>
+                        <p style="color: #ccc; line-height: 1.8;">
+                            Informações úteis para melhor experiência.
+                        </p>
+                        <div class="code-terminal">📱 TESTANDO O SISTEMA:
+
+1. Adicione alguns eventos no Outlook Calendar para HOJE
+   - Acesse: https://outlook.live.com/calendar
+   - Crie 2-3 eventos com horários diferentes
+   
+2. No Space Mirror, clique em "TESTAR TRANSMISSÃO"
+   - Deve aparecer a lista de eventos
+   
+3. Conecte seu Raspberry Pi Pico 2W
+   - O dispositivo será aprovado automaticamente
+   - Eventos serão sincronizados via MQTT
+
+═══════════════════════════════════════════
+
+🔄 SINCRONIZAÇÃO AUTOMÁTICA:
+
+• Sistema sincroniza a cada 15 minutos automaticamente
+• Você pode forçar sincronização clicando em:
+  - "SINCRONIZAR TUDO" (todos os dispositivos)
+  - "SINCRONIZAR AGORA" (dispositivo específico)
+
+═══════════════════════════════════════════
+
+🔐 SEGURANÇA:
+
+• Tokens armazenados localmente (SQLite)
+• Refresh token renova automaticamente
+• Você pode fazer logout a qualquer momento
+• Permissões são apenas de leitura (Read only)
+
+═══════════════════════════════════════════
+
+📞 PRECISA DE AJUDA?
+
+Se ainda tiver problemas:
+1. Verifique os logs do console Python
+2. Delete o arquivo mirror.db e tente novamente
+3. Certifique-se que o servidor está rodando na porta 5000
+4. Verifique se tem conexão com a internet</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
-
+    
     <script>
-        // Inicializar animação de partículas
-        function createParticles() {
-            const particleCount = 8;
-            for (let i = 0; i < particleCount; i++) {
-                setTimeout(() => {
-                    const particle = document.createElement('div');
-                    particle.className = 'particle';
-                    particle.style.left = Math.random() * 100 + '%';
-                    particle.style.animationDelay = Math.random() * 15 + 's';
-                    particle.style.animationDuration = (15 + Math.random() * 10) + 's';
-                    document.body.appendChild(particle);
-                    
-                    setTimeout(() => {
-                        particle.remove();
-                    }, 25000);
-                }, i * 2000);
-            }
+        // Criar campo de estrelas
+        const starfield = document.getElementById('starfield');
+        for (let i = 0; i < 200; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            starfield.appendChild(star);
         }
-
-        // Funcionalidade de troca de abas
+        
+        // Navegação entre abas
         function switchTab(tabName) {
-            // Ocultar todos os conteúdos das abas
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
-            
-            // Remover classe ativa de todas as abas
             document.querySelectorAll('.nav-tab').forEach(tab => {
                 tab.classList.remove('active');
             });
             
-            // Mostrar conteúdo da aba selecionada
             document.getElementById(tabName).classList.add('active');
-            
-            // Adicionar classe ativa à aba clicada
             event.target.classList.add('active');
-        }
-
-        // Modal do guia de credenciais
-        function openCredentialsGuide() {
-            document.getElementById('credentialsModal').classList.add('show');
-        }
-
-        function closeCredentialsGuide() {
-            document.getElementById('credentialsModal').classList.remove('show');
-        }
-
-        // Funções de configuração
-        async function saveConfiguration() {
-            const config = {
-                clientId: document.getElementById('clientId').value,
-                tenantId: document.getElementById('tenantId').value,
-                clientSecret: document.getElementById('clientSecret').value
-            };
             
-            if (!config.clientId || !config.tenantId || !config.clientSecret) {
-                showNotification('Todas as credenciais do passe de embarque são obrigatórias', 'error');
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
-                });
-                
-                if (response.ok) {
-                    showNotification('Passe de embarque inicializado com sucesso!', 'success');
-                    updateSystemStatus();
-                } else {
-                    showNotification('Falha ao inicializar passe de embarque', 'error');
-                }
-            } catch (error) {
-                showNotification('Erro do sistema durante a inicialização', 'error');
+            if (tabName === 'command') {
+                refreshDevices();
             }
         }
-
-        async function testConnection() {
+        
+        // Toast notifications
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => toast.classList.add('show'), 100);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 500);
+            }, 3000);
+        }
+        
+        // Salvar configuração
+        async function saveConfig() {
             const clientId = document.getElementById('clientId').value.trim();
-            const tenantId = document.getElementById('tenantId').value.trim();
-            const clientSecret = document.getElementById('clientSecret').value.trim();
             
-            if (!clientId || !tenantId || !clientSecret) {
-                showNotification('Digite todas as credenciais antes de executar a verificação do sistema', 'error');
+            if (!clientId) {
+                showToast('⚠️ Insira o Application (Client) ID', 'error');
                 return;
             }
-
+            
             try {
-                showNotification('Salvando credenciais...', 'info');
-                
-                const saveResponse = await fetch('/api/config', {
+                const res = await fetch('/api/config', {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        clientId: clientId,
-                        tenantId: tenantId,
-                        clientSecret: clientSecret
-                    })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({clientId: clientId})
                 });
                 
-                if (!saveResponse.ok) {
-                    throw new Error(`Falha ao salvar configuração: ${saveResponse.status}`);
+                if (res.ok) {
+                    showToast('✅ Passe de embarque inicializado!', 'success');
+                    document.getElementById('loginBtn').disabled = false;
+                    updateStatus();
+                } else {
+                    showToast('❌ Falha na inicialização', 'error');
+                }
+            } catch (e) {
+                showToast('❌ Erro de conexão com portal', 'error');
+            }
+        }
+        
+        // Login
+        function login() {
+            showToast('🚀 Abrindo portal de autorização...', 'info');
+            window.open('/api/login', '_blank', 'width=600,height=700');
+            
+            let attempts = 0;
+            const checkInterval = setInterval(async () => {
+                attempts++;
+                
+                if (attempts > 30) {
+                    clearInterval(checkInterval);
+                    return;
                 }
                 
-                showNotification('Configuração salva! Abrindo autenticação...', 'success');
-                
-                setTimeout(() => {
-                    const authWindow = window.open('/api/auth', 'auth', 'width=600,height=700,scrollbars=yes,resizable=yes');
+                try {
+                    const res = await fetch('/api/status');
+                    const data = await res.json();
                     
-                    if (!authWindow) {
-                        showNotification('Popup bloqueado! Por favor, permita popups para este site', 'error');
-                        return;
+                    if (data.has_token) {
+                        clearInterval(checkInterval);
+                        document.getElementById('loginBtn').style.display = 'none';
+                        document.getElementById('logoutBtn').style.display = 'inline-block';
+                        document.getElementById('authMsg').innerHTML = `
+                            <div style="text-align: center; padding: 20px; background: rgba(0, 255, 0, 0.1); 
+                                 border: 2px solid #00ff00; border-radius: 10px; margin-top: 20px;">
+                                <div style="color: #00ff00; font-size: 1.5em; margin-bottom: 10px;">✅ EMBARQUE AUTORIZADO</div>
+                                <div style="color: #00ffff;">Comandante: ${data.user_name}</div>
+                            </div>
+                        `;
+                        showToast('🎉 Bem-vindo à tripulação, ' + data.user_name + '!', 'success');
+                        updateStatus();
+                        refreshDevices();
                     }
-                    
-                    showNotification('Complete a autenticação na janela popup', 'info');
-                    
-                    const checkClosed = setInterval(() => {
-                        if (authWindow.closed) {
-                            clearInterval(checkClosed);
-                            showNotification('Janela de autenticação fechada - atualizando status...', 'info');
-                            
-                            setTimeout(() => {
-                                updateSystemStatus();
-                                setTimeout(() => updateSystemStatus(), 2000);
-                                setTimeout(() => updateSystemStatus(), 5000);
-                            }, 1000);
-                        }
-                    }, 1000);
-                }, 500);
-                
-            } catch (error) {
-                console.error('Erro no teste de conexão:', error);
-                showNotification(`Verificação do sistema falhou: ${error.message}`, 'error');
-            }
+                } catch (e) {}
+            }, 2000);
         }
-
-        async function updateSystemStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const status = await response.json();
-                
-                const statusDiv = document.getElementById('systemStatus');
-                statusDiv.innerHTML = `
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
-                        <div style="text-align: center;">
-                            <div style="font-size: 2em; color: ${status.online ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.online ? '✓' : '✗'}</div>
-                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">SISTEMA</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="font-size: 2em; color: ${status.mqtt ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.mqtt ? '✓' : '✗'}</div>
-                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">MQTT</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="font-size: 2em; color: ${status.has_azure_config ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.has_azure_config ? '✓' : '✗'}</div>
-                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">CREDENCIAIS</div>
-                        </div>
-                        <div style="text-align: center;">
-                            <div style="font-size: 2em; color: ${status.has_token ? 'var(--success-glow)' : 'var(--error-glow)'}">${status.has_token ? '✓' : '✗'}</div>
-                            <div style="color: var(--text-accent); font-family: 'Orbitron', monospace;">TOKEN DE AUTH</div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 20px; padding: 15px; background: rgba(0, 40, 80, 0.3); border-radius: 8px; border: 1px solid var(--border-glow);">
-                        <div style="color: var(--text-accent); font-family: 'Orbitron', monospace; font-size: 14px;">IDENTIFICADOR DA MISSÃO</div>
-                        <div style="color: var(--text-primary); font-family: 'Courier New', monospace; margin-top: 5px;">${status.topic_prefix}</div>
-                    </div>
-                `;
-            } catch (error) {
-                document.getElementById('systemStatus').innerHTML = `
-                    <div style="color: var(--error-glow); text-align: center;">
-                        Status do sistema indisponível
-                    </div>
-                `;
-            }
-        }
-
-        // Funções de gerenciamento de dispositivos
-        async function scanForDevices() {
-            const statusDiv = document.getElementById('deviceScanStatus');
-            statusDiv.innerHTML = `
-                <div style="color: var(--primary-glow); display: flex; align-items: center; justify-content: center; gap: 10px;">
-                    <div style="animation: pulse-glow 1s ease-in-out infinite;">🔍</div>
-                    Procurando dispositivos Pico 2W...
-                </div>
-            `;
+        
+        // Logout
+        async function logout() {
+            if (!confirm('🛑 Deseja realmente cancelar a missão?')) return;
             
             try {
-                await refreshDeviceList();
-                
-                setTimeout(() => {
-                    statusDiv.innerHTML = `
-                        <div style="color: var(--success-glow);">
-                            Busca concluída. Verifique a lista de dispositivos abaixo.
-                        </div>
-                    `;
-                }, 2000);
-            } catch (error) {
-                statusDiv.innerHTML = `
-                    <div style="color: var(--error-glow);">
-                        Busca falhou: ${error.message}
-                    </div>
-                `;
+                await fetch('/api/logout', {method: 'POST'});
+                document.getElementById('loginBtn').style.display = 'inline-block';
+                document.getElementById('logoutBtn').style.display = 'none';
+                document.getElementById('authMsg').innerHTML = '';
+                showToast('👋 Missão cancelada', 'info');
+                updateStatus();
+            } catch (e) {
+                showToast('❌ Erro ao desconectar', 'error');
             }
         }
-
-        async function refreshDeviceList() {
+        
+        // Atualizar status
+        async function updateStatus() {
             try {
-                const response = await fetch('/api/devices');
-                const devices = await response.json();
+                const res = await fetch('/api/status');
+                const data = await res.json();
                 
-                const deviceListDiv = document.getElementById('deviceList');
-                
-                if (devices.length === 0) {
-                    deviceListDiv.innerHTML = `
-                        <div style="text-align: center; padding: 30px; color: var(--text-secondary);">
-                            <div style="font-size: 3em; margin-bottom: 10px;">📡</div>
-                            <div>Nenhum dispositivo detectado ainda</div>
-                            <div style="font-size: 0.9em; margin-top: 10px;">Certifique-se de que seu Pico 2W está conectado e executando o código cliente</div>
+                const panel = document.getElementById('statusPanel');
+                panel.innerHTML = `
+                    <div class="status-module">
+                        <h3>SISTEMA CENTRAL</h3>
+                        <div class="status-indicator">
+                            <div class="led online"></div>
+                            <span>Operacional</span>
                         </div>
-                    `;
+                    </div>
+                    <div class="status-module">
+                        <h3>CONEXÃO QUÂNTICA</h3>
+                        <div class="status-indicator">
+                            <div class="led ${data.mqtt_connected ? 'online' : 'offline'}"></div>
+                            <span>${data.mqtt_connected ? 'Sincronizado' : 'Desconectado'}</span>
+                        </div>
+                    </div>
+                    <div class="status-module">
+                        <h3>AUTORIZAÇÃO</h3>
+                        <div class="status-indicator">
+                            <div class="led ${data.has_token ? 'online' : 'offline'}"></div>
+                            <span>${data.has_token ? data.user_name : 'Não autorizado'}</span>
+                        </div>
+                    </div>
+                    <div class="status-module">
+                        <h3>DISPOSITIVOS</h3>
+                        <div class="status-indicator">
+                            <div class="led ${data.devices_approved > 0 ? 'online' : 'offline'}"></div>
+                            <span>${data.devices_approved} ativos</span>
+                        </div>
+                    </div>
+                `;
+                
+                if (data.has_token) {
+                    document.getElementById('loginBtn').style.display = 'none';
+                    document.getElementById('logoutBtn').style.display = 'inline-block';
                 } else {
-                    deviceListDiv.innerHTML = devices.map(device => createDeviceCard(device)).join('');
+                    document.getElementById('loginBtn').disabled = !data.has_azure_config;
                 }
-            } catch (error) {
-                showNotification('Falha ao carregar lista de dispositivos', 'error');
+            } catch (e) {
+                console.error('Erro ao atualizar status:', e);
             }
         }
-
-        function createDeviceCard(device) {
-            const statusColor = device.status === 'approved' ? 'var(--success-glow)' : 
-                               device.status === 'pending' ? 'var(--accent-glow)' : 'var(--error-glow)';
+        
+        // Atualizar dispositivos
+        async function refreshDevices() {
+            const list = document.getElementById('deviceList');
+            list.innerHTML = '<div style="text-align: center; color: #00ffff;"><div class="loading"></div> Escaneando rede quântica...</div>';
             
-            const statusIcon = device.status === 'approved' ? '✓' : 
-                              device.status === 'pending' ? '⏳' : '✗';
-            
-            const statusText = device.status === 'approved' ? 'APROVADO' : 
-                              device.status === 'pending' ? 'PENDENTE' : 'ERRO';
-            
-            return `
-                <div class="space-card" style="margin-bottom: 20px; border-color: ${statusColor};">
-                    <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 20px; align-items: center;">
-                        <div>
-                            <div style="color: var(--primary-glow); font-family: 'Orbitron', monospace; font-weight: 600; margin-bottom: 8px;">
-                                DISPOSITIVO: ${device.device_id || 'Aguardando Atribuição'}
-                            </div>
-                            <div style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 5px;">
-                                ID de Registro: ${device.registration_id}
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="color: ${statusColor}; font-size: 1.2em;">${statusIcon}</span>
-                                <span style="color: ${statusColor}; font-family: 'Orbitron', monospace; text-transform: uppercase;">
-                                    ${statusText}
-                                </span>
-                            </div>
-                        </div>
-                        
-                        <div style="text-align: center;">
-                            ${device.status === 'pending' ? `
-                                <button class="btn btn-success" onclick="approveDevice('${device.registration_id}')" style="font-size: 12px; padding: 10px 20px;">
-                                    APROVAR
-                                </button>
-                            ` : device.status === 'approved' ? `
-                                <button class="btn" onclick="syncDevice('${device.device_id}')" style="font-size: 12px; padding: 10px 20px;">
-                                    SINCRONIZAR AGORA
-                                </button>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        async function approveDevice(registrationId) {
             try {
-                const response = await fetch(`/api/devices/${registrationId}/approve`, {
-                    method: 'POST'
+                const res = await fetch('/api/devices');
+                const data = await res.json();
+                
+                if (data.devices.length === 0) {
+                    list.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #00ffff;">
+                            <div style="font-size: 3em; margin-bottom: 20px;">🛸</div>
+                            <div style="font-size: 1.3em; margin-bottom: 10px;">Nenhuma nave detectada</div>
+                            <div style="opacity: 0.7;">Aguardando conexão de dispositivos...</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                data.devices.forEach(device => {
+                    html += `
+                        <div class="device-card">
+                            <div class="device-header">
+                                <div class="device-id">🛸 ${device.device_id}</div>
+                                <div class="badge">✓ SINCRONIZADO</div>
+                            </div>
+                            <div style="color: #ccc; margin: 10px 0;">
+                                <strong style="color: #00ffff;">Sistema:</strong> ${device.device_info || 'Desconhecido'}
+                            </div>
+                            ${device.mac_address ? `
+                            <div style="color: #ccc; margin: 10px 0;">
+                                <strong style="color: #00ffff;">Identificador:</strong> ${device.mac_address}
+                            </div>` : ''}
+                            <div style="color: #ccc; margin: 10px 0;">
+                                <strong style="color: #00ffff;">Primeira conexão:</strong> 
+                                ${new Date(device.first_seen).toLocaleString('pt-BR')}
+                            </div>
+                            <div style="margin-top: 20px;">
+                                <button class="launch-btn btn-outline" onclick="syncDevice('${device.device_id}')" 
+                                        style="padding: 10px 20px; font-size: 0.9em;">
+                                    📡 SINCRONIZAR AGORA
+                                </button>
+                            </div>
+                        </div>
+                    `;
                 });
                 
-                if (response.ok) {
-                    const result = await response.json();
-                    showNotification(`Dispositivo aprovado: ${result.device_id}`, 'success');
-                    refreshDeviceList();
-                } else {
-                    showNotification('Falha ao aprovar dispositivo', 'error');
-                }
-            } catch (error) {
-                showNotification('Erro ao aprovar dispositivo', 'error');
+                list.innerHTML = html;
+                showToast(`🛸 ${data.devices.length} nave(s) detectada(s)`, 'success');
+            } catch (e) {
+                list.innerHTML = '<div style="text-align: center; color: #ff0000;">❌ Erro ao escanear rede</div>';
             }
         }
-
+        
+        // Sincronizar dispositivo
         async function syncDevice(deviceId) {
+            showToast(`📡 Sincronizando ${deviceId}...`, 'info');
+            
             try {
-                showNotification('Sincronizando dispositivo...', 'info');
+                const res = await fetch(`/api/sync/${deviceId}`, {method: 'POST'});
+                const data = await res.json();
                 
-                const response = await fetch(`/api/sync/${deviceId}`, {
-                    method: 'POST'
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.success) {
-                        showNotification('Dispositivo sincronizado com sucesso!', 'success');
-                    } else {
-                        showNotification('Sincronização falhou', 'error');
-                    }
+                if (data.success) {
+                    showToast('✅ Transmissão quântica concluída!', 'success');
                 } else {
-                    showNotification('Falha ao sincronizar dispositivo', 'error');
+                    showToast('❌ Falha na transmissão', 'error');
                 }
-            } catch (error) {
-                showNotification('Erro durante a sincronização', 'error');
+            } catch (e) {
+                showToast('❌ Erro de conexão', 'error');
             }
         }
-
-        async function updateTopicInfo() {
+        
+        // Sincronizar todos
+        async function syncAll() {
+            showToast('📡 Iniciando sincronização em massa...', 'info');
+            
             try {
-                const response = await fetch('/api/config');
-                const config = await response.json();
-                const topicInfoDiv = document.getElementById('topicInfo');
-                if (topicInfoDiv) {
-                    topicInfoDiv.textContent = `Broker MQTT: test.mosquitto.org:1883
-Tópico de Registro: ${config.topic_prefix}/registration
-Tópico de Eventos: ${config.topic_prefix}/devices/[device_id]/events`;
-                }
-            } catch (error) {
-                console.log('Não foi possível atualizar informações do tópico');
-            }
-        }
-
-        // Sistema de notificações
-        function showNotification(message, type = 'info') {
-            const notification = document.createElement('div');
-            notification.className = `notification ${type}`;
-            notification.textContent = message;
-            document.body.appendChild(notification);
-            
-            setTimeout(() => {
-                notification.classList.add('show');
-            }, 100);
-            
-            setTimeout(() => {
-                notification.classList.remove('show');
-                setTimeout(() => {
-                    notification.remove();
-                }, 500);
-            }, 4000);
-        }
-
-        // Fechar modal ao clicar fora
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal')) {
-                e.target.classList.remove('show');
-            }
-        });
-
-        // Inicializar sistema ao carregar
-        document.addEventListener('DOMContentLoaded', () => {
-            updateSystemStatus();
-            setInterval(updateSystemStatus, 30000); // Atualizar a cada 30 segundos
-            
-            // Iniciar animação de partículas
-            createParticles();
-            setInterval(createParticles, 30000); // Criar novas partículas a cada 30 segundos
-            
-            // Carregar configuração existente se houver
-            loadExistingConfig();
-            
-            // Atualizar informações do tópico
-            updateTopicInfo();
-            
-            // Auto-atualizar lista de dispositivos a cada 10 segundos quando na aba de dispositivos
-            setInterval(() => {
-                const devicesTab = document.getElementById('devices');
-                if (devicesTab && devicesTab.classList.contains('active')) {
-                    refreshDeviceList();
-                }
-            }, 10000);
-        });
-
-        async function loadExistingConfig() {
-            try {
-                const response = await fetch('/api/config');
-                const config = await response.json();
+                const res = await fetch('/api/sync/all', {method: 'POST'});
+                const data = await res.json();
                 
-                if (config.client_id) {
-                    document.getElementById('clientId').value = config.client_id;
+                if (data.success) {
+                    showToast(`✅ ${data.count} dispositivo(s) sincronizado(s)!`, 'success');
+                } else {
+                    showToast('❌ Falha na sincronização', 'error');
                 }
-                if (config.tenant_id) {
-                    document.getElementById('tenantId').value = config.tenant_id;
-                }
-                // Não carregar client_secret por razões de segurança
-            } catch (error) {
-                console.log('Nenhuma configuração existente encontrada');
+            } catch (e) {
+                showToast('❌ Erro de conexão', 'error');
             }
         }
-
-        // Atalhos de teclado
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                document.querySelectorAll('.modal.show').forEach(modal => {
-                    modal.classList.remove('show');
-                });
+        
+        // Testar eventos
+        async function testEvents() {
+            showToast('🧪 Testando transmissão de dados...', 'info');
+            
+            try {
+                const res = await fetch('/api/events');
+                const data = await res.json();
+                
+                if (data.events.length === 0) {
+                    showToast('📅 Nenhum evento detectado hoje', 'info');
+                    alert('📅 RELATÓRIO DE TRANSMISSÃO\n\nNenhum evento encontrado para hoje no calendário sincronizado.');
+                } else {
+                    showToast(`✅ ${data.events.length} transmissão(ões) recebida(s)!`, 'success');
+                    
+                    let report = `📡 RELATÓRIO DE TRANSMISSÃO\n`;
+                    report += `Data: ${data.date}\n`;
+                    report += `Total: ${data.events.length} evento(s)\n\n`;
+                    report += `═══════════════════════════════\n\n`;
+                    
+                    data.events.forEach((event, index) => {
+                        const time = event.time || '⏰ Todo dia';
+                        report += `${index + 1}. ${time}\n`;
+                        report += `   ${event.title}\n\n`;
+                    });
+                    
+                    alert(report);
+                }
+            } catch (e) {
+                showToast('❌ Falha na transmissão', 'error');
             }
-        });
-
-        // Efeitos visuais aprimorados
-        function addGlowEffect(element) {
-            element.style.boxShadow = '0 0 30px var(--primary-glow)';
-            setTimeout(() => {
-                element.style.boxShadow = '';
-            }, 1000);
         }
-
-        // Adicionar efeitos de clique aos botões
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('btn')) {
-                addGlowEffect(e.target);
+        
+        // Carregar ao iniciar
+        window.onload = async function() {
+            try {
+                const res = await fetch('/api/config');
+                const data = await res.json();
+                
+                if (data.client_id) document.getElementById('clientId').value = data.client_id;
+                if (data.has_credentials) document.getElementById('loginBtn').disabled = false;
+                
+                if (data.has_token) {
+                    document.getElementById('loginBtn').style.display = 'none';
+                    document.getElementById('logoutBtn').style.display = 'inline-block';
+                    document.getElementById('authMsg').innerHTML = `
+                        <div style="text-align: center; padding: 20px; background: rgba(0, 255, 0, 0.1); 
+                             border: 2px solid #00ff00; border-radius: 10px; margin-top: 20px;">
+                            <div style="color: #00ff00; font-size: 1.5em; margin-bottom: 10px;">✅ EMBARQUE AUTORIZADO</div>
+                            <div style="color: #00ffff;">Comandante: ${data.user_name}</div>
+                        </div>
+                    `;
+                }
+                
+                updateStatus();
+            } catch (e) {
+                console.error('Erro ao carregar:', e);
             }
-        });
+        };
     </script>
 </body>
 </html>
-                        <div class="step-title">PREPARAÇÃO DO DISPOSITIVO</div>
-                        <div class="step-description">
-                            Certifique-se de que seu Pico 2W está executando o firmware cliente Magic Mirror e conectado ao WiFi.
-                        </div>
-                        <div class="step-code">Necessário: Pico 2W com código cliente MQTT
-Conexão WiFi com acesso à internet</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">CONFIGURAÇÃO DE TÓPICOS</div>
-                        <div class="step-description">
-                            O Pico 2W deve se conectar ao broker MQTT e se inscrever no tópico de registro.
-                        </div>
-                        <div class="step-code" id="topicInfo">Broker MQTT: test.mosquitto.org:1883
-Tópico de Registro: [Carregando...]</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">REGISTRO DO DISPOSITIVO</div>
-                        <div class="step-description">
-                            O dispositivo aparecerá automaticamente nos resultados da busca quando se conectar ao MQTT.
-                        </div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">PROCESSO DE APROVAÇÃO</div>
-                        <div class="step-description">
-                            Uma vez detectado, aprove o dispositivo para começar a receber eventos do calendário.
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Aba de Guia de Credenciais Azure -->
-        <div id="credentials" class="tab-content">
-            <div class="space-card">
-                <h3>PROTOCOLO DE AQUISIÇÃO DE CREDENCIAIS AZURE</h3>
-                <p style="text-align: center; color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1em;">
-                    Siga este procedimento classificado para obter suas credenciais de embarque Azure
-                </p>
-
-                <div style="text-align: center; margin-bottom: 30px;">
-                    <button class="btn btn-outline" onclick="openCredentialsGuide()">
-                        ACESSAR GUIA DE CREDENCIAIS
-                    </button>
-                </div>
-
-                <div class="tutorial-steps">
-                    <div class="tutorial-step">
-                        <div class="step-title">ACESSAR PORTAL AZURE</div>
-                        <div class="step-description">
-                            Navegue até o Centro de Comando Azure e autentique com suas credenciais Microsoft
-                        </div>
-                        <div class="step-code">portal.azure.com</div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">LOCALIZAR REGISTRO DE APLICAÇÕES</div>
-                        <div class="step-description">
-                            Na barra de pesquisa do portal Azure, digite "entra id" e selecione "Microsoft Entra ID"
-                        </div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        <div class="step-title">CRIAR REGISTRO DE APLICAÇÃO</div>
-                        <div class="step-description">
-                            Navegue para "Registros de aplicativo" → Clique em "Novo registro"
-                        </div>
-                    </div>
-
-                    <div class="tutorial-step">
-                        
